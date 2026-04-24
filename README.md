@@ -12,21 +12,52 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 ## Recommended Next Upgrades
 If you want this to become a serious monitoring bot (not only a demo simulator), prioritize:
 
-1. **Real dark pool + tape data ingestion**
-   - Add a backend service that consumes ATS/TRF prints, SIP/CTA feed, or your broker/API source.
-   - Store normalized events in PostgreSQL/TimescaleDB.
-2. **Alerting and anomaly detection**
-   - Trigger Discord/Telegram/email/webhook alerts for block prints, unusual buy:sell imbalance, and repeat sweeps.
-   - Add rolling z-score / percentile thresholds instead of a static slider.
-3. **Persistent historical analytics**
-   - Keep minute and hourly aggregates so charts can show 1D/1W/1M without re-simulation.
-   - Add top venue, top counterparty bucket, and session segmentation.
-4. **Execution-quality frontend features**
-   - Add multi-panel charting (volume, notional, price impact).
-   - Add sortable table with export (CSV/JSON), saved filters, and replay mode.
-5. **Production reliability**
-   - Add tests, typed interfaces, and health checks.
-   - Run ingestion + UI with Docker Compose and a monitored deploy target.
+### Phase 1: Real Ingestion Layer
+1. **FINRA OTC/ATS API** - Free public dark pool reporting data
+   - https://www.finra.org/filing-reporting/otc-transparency
+   - https://www.finra.org/filing-reporting/otc-transparency/otc-transparency-data-api
+2. **Polygon** - Dark pool trade identification from exchange metadata
+   - https://polygon.io/knowledge-base/article/does-polygon-offer-dark-pool-data
+3. **Intrinio** - Dark pool capable trade filtering (`darkpool_only`)
+   - https://docs.intrinio.com/documentation/web_api/get_security_trades_v2
+
+### Phase 2: Data Normalization
+- Event schema: ATS vs Non-ATS vs TRF enriched metadata
+- Standardized ticker normalization across data sources
+- Timestamp alignment and latency tracking
+
+### Phase 3: Anomaly Detection Engine
+- Z-score deviation from baseline
+- Percent of Average Daily Volume (ADV) thresholds
+- Repeat level / support-resistance clustering (inspired by FlowAlgo)
+- Pattern recognition for block prints and sweeps
+
+### Phase 4: Alert Routing
+- Discord/Telegram webhook integration
+- Deduplication windows to prevent alert spam
+- Urgency levels (inspired by FlowAlgo's alert intensity)
+- Custom threshold configuration per ticker
+
+### Phase 5: Historical Analytics & Replay Mode
+- Persistent storage (PostgreSQL/TimescaleDB)
+- 1D/1W/1M historical backtesting view
+- False-positive tracking
+- Export workflows (CSV/JSON) - inspired by Cheddar Flow
+
+### Reference Tools
+| Tool | Key Features to Borrow |
+|------|----------------------|
+| FlowAlgo | Big prints stream, level clustering, urgency alerts |
+| Cheddar Flow | Historical backtesting, price-level accumulation, export UX |
+| Tradytics | Dark flow heatmap, top prints dashboard |
+| BlackBoxStocks | Scanner-first workflow, one-pane operations |
+| OpenBB | Slash-command bot workflows, Discord automation |
+
+### Tech Additions for Production
+- Node.js/Express backend for API ingestion
+- PostgreSQL/TimescaleDB for time-series storage
+- Redis for real-time caching and dedup
+- Docker Compose for deployment
 
 ## Tech Stack
 - React + Vite
