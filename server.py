@@ -1340,6 +1340,341 @@ async def get_whale_feed(
 
 
 # ============================================================================
+# Options Dashboard Metrics
+# ============================================================================
+
+class OptionsMetricsQuery(BaseModel):
+    """Options metrics query."""
+
+    symbol: str | None = None
+    days_back: int = 7
+
+
+@app.get("/options/highest-call-vol")
+async def get_highest_call_vol_change(
+    symbol: str = Query(None),
+    days_back: int = Query(7, ge=1, le=90, description="Days back to compare"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get stocks with highest call volume change."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(days_back * 100)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        # Simulate volume data
+        for _ in range(limit):
+            strike = base.get("basePrice", 100) * random.uniform(0.9, 1.2)
+            call_vol = int(random.randint(1000, 50000) * (1 + days_back * 0.5))
+            prev_vol = int(call_vol / (1 + random.uniform(0.1, 0.8)))
+            pct_change = ((call_vol - prev_vol) / prev_vol * 100) if prev_vol > 0 else 0
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": "CALL",
+                "volume": call_vol,
+                "prev_volume": prev_vol,
+                "volume_change_pct": round(pct_change, 2),
+                "iv": round(random.uniform(20, 60), 1),
+                "bid": round(strike * 0.95, 2),
+                "ask": round(strike * 1.05, 2),
+                "mid": round(strike, 2),
+            })
+
+    results.sort(key=lambda x: x["volume_change_pct"], reverse=True)
+    return {"metric": "highest_call_vol_change", "days_back": days_back, "results": results[:limit]}
+
+
+@app.get("/options/highest-put-vol")
+async def get_highest_put_vol_change(
+    symbol: str = Query(None),
+    days_back: int = Query(7, ge=1, le=90),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get stocks with highest put volume change."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(days_back * 200 + 1)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        for _ in range(limit):
+            strike = base.get("basePrice", 100) * random.uniform(0.8, 1.1)
+            put_vol = int(random.randint(1000, 50000) * (1 + days_back * 0.5))
+            prev_vol = int(put_vol / (1 + random.uniform(0.1, 0.8)))
+            pct_change = ((put_vol - prev_vol) / prev_vol * 100) if prev_vol > 0 else 0
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": "PUT",
+                "volume": put_vol,
+                "prev_volume": prev_vol,
+                "volume_change_pct": round(pct_change, 2),
+                "iv": round(random.uniform(20, 60), 1),
+                "bid": round(strike * 0.95, 2),
+                "ask": round(strike * 1.05, 2),
+                "mid": round(strike, 2),
+            })
+
+    results.sort(key=lambda x: x["volume_change_pct"], reverse=True)
+    return {"metric": "highest_put_vol_change", "days_back": days_back, "results": results[:limit]}
+
+
+@app.get("/options/high-vol-cheapies")
+async def get_high_vol_cheapies(
+    symbol: str = Query(None),
+    max_ask: float = Query(5.0, description="Maximum ask price"),
+    min_volume: int = Query(10000, description="Minimum volume"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get high volume cheap contracts (< $5 ask)."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(300)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        for _ in range(limit * 2):
+            strike = base.get("basePrice", 100) * random.uniform(0.85, 1.15)
+            op_type = random.choice(["CALL", "PUT"])
+            ask = round(random.uniform(0.5, max_ask), 2)
+            if ask > max_ask:
+                continue
+
+            vol = int(random.randint(min_volume, 100000))
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": op_type,
+                "bid": round(max(0.01, ask * 0.85), 2),
+                "ask": ask,
+                "mid": round((ask * 0.85 + ask) / 2, 2),
+                "volume": vol,
+                "open_interest": int(vol * random.uniform(1, 3)),
+                "iv": round(random.uniform(15, 50), 1),
+                "days_to_exp": random.randint(1, 45),
+            })
+
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "high_vol_cheapies", "max_ask": max_ask, "results": results[:limit]}
+
+
+@app.get("/options/high-vol-leaps")
+async def get_high_vol_leaps(
+    symbol: str = Query(None),
+    min_months: int = Query(6, description="Minimum months to expiration"),
+    min_volume: int = Query(5000, description="Minimum volume"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get high volume LEAP contracts (6+ months)."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(400)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+
+        # LEAPS: Generate strikes for future expiration
+        for months in [6, 9, 12, 18, 24]:
+            for _ in range(limit):
+                strike = base.get("basePrice", 100) * random.uniform(0.7, 1.3)
+                op_type = random.choice(["CALL", "PUT"])
+                vol = int(random.randint(min_volume, 80000))
+                premium = round(vol * strike / 100, 2)  # Approximate premium
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": op_type,
+                    "expiration_months": months,
+                    "bid": round(premium * 0.85, 2),
+                    "ask": round(premium * 1.15, 2),
+                    "mid": round(premium, 2),
+                    "volume": vol,
+                    "open_interest": int(vol * random.uniform(2, 5)),
+                    "iv": round(random.uniform(25, 45), 1),
+                }))
+
+    results = [r for r in results if r["expiration_months"] >= min_months]
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "high_vol_leaps", "min_months": min_months, "results": results[:limit]}
+
+
+@app.get("/options/most-otm-strikes")
+async def get_most_otm_strikes(
+    symbol: str = Query(None),
+    min_otm_pct: float = Query(10.0, ge=5, le=50, description="Min % OTM"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get most out-of-the-money strikes."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(500)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        price = base.get("basePrice", 100)
+
+        # Generate OTM strikes
+        for pct in [min_otm_pct, min_otm_pct * 1.5, min_otm_pct * 2, min_otm_pct * 3]:
+            # Calls: strike above current price
+            call_strike = price * (1 + pct / 100)
+            # Puts: strike below current price
+            put_strike = price * (1 - pct / 100)
+
+            for strike, otype in [(call_strike, "CALL"), (put_strike, "PUT")]:
+                vol = int(random.randint(500, 20000) / (pct / 10))
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": otype,
+                    "current_price": price,
+                    "otm_pct": round(pct, 1),
+                    "volume": vol,
+                    "open_interest": int(vol * random.uniform(1, 4)),
+                    "bid": round(random.uniform(0.1, 2), 2),
+                    "ask": round(random.uniform(0.2, 3), 2),
+                    "iv": round(random.uniform(30, 70), 1),
+                })
+
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "most_otm_strikes", "min_otm_pct": min_otm_pct, "results": results[:limit]}
+
+
+@app.get("/options/large-otm-oi")
+async def get_large_otm_oi(
+    symbol: str = Query(None),
+    min_otm_pct: float = Query(5.0, ge=2, le=30),
+    min_oi: int = Query(10000, description="Minimum open interest"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get large OTM open interest positions."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(600)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        price = base.get("basePrice", 100)
+
+        for pct in [min_otm_pct, min_otm_pct * 1.5, min_otm_pct * 2, min_otm_pct * 2.5]:
+            call_strike = price * (1 + pct / 100)
+            put_strike = price * (1 - pct / 100)
+
+            for strike, otype in [(call_strike, "CALL"), (put_strike, "PUT")]:
+                oi = int(random.randint(min_oi, 100000))
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": otype,
+                    "current_price": price,
+                    "otm_pct": round(pct, 1),
+                    "open_interest": oi,
+                    "volume": int(oi * random.uniform(0.05, 0.3)),
+                    "bid": round(random.uniform(0.1, 3), 2),
+                    "ask": round(random.uniform(0.2, 4), 2),
+                    "iv": round(random.uniform(25, 65), 1),
+                }))
+
+    results = [r for r in results if r["open_interest"] >= min_oi]
+    results.sort(key=lambda x: x["open_interest"], reverse=True)
+    return {"metric": "large_otm_oi", "min_otm_pct": min_otm_pct, "results": results[:limit]}
+
+
+# ============================================================================
+# Market Cap Milestone Tracker
+# ============================================================================
+
+@app.get("/marketcap/milestones")
+async def get_market_cap_milestones(
+    symbol: str = Query(None),
+    target_milestone: int = Query(1_000_000_000_000, description="Target market cap (default $1T)"),
+):
+    """Get market cap milestone tracking."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(700)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+
+        # Simulate market cap and milestones
+        price = base.get("basePrice", 100)
+        shares_out = int(random.uniform(1e9, 20e9))
+        current_mcap = price * shares_out
+
+        # Calculate days to milestone
+        daily_growth = random.uniform(-0.02, 0.05)
+        days_to_milestone = None
+
+        if current_mcap < target_milestone:
+            # Calculate compound growth days
+            rate = 1 + daily_growth
+            import math
+            days_to_milestone = int(math.log(target_milestone / current_mcap) / math.log(rate))
+            days_to_milestone = max(1, min(days_to_milestone, 3650))  # Cap at 10 years
+
+        # Generate historical milestones
+        milestones = [
+            {"level": "100B", "target": 100_000_000_000, "achieved": current_mcap >= 100_000_000_000},
+            {"level": "500B", "target": 500_000_000_000, "achieved": current_mcap >= 500_000_000_000},
+            {"level": "1T", "target": 1_000_000_000_000, "achieved": current_mcap >= 1_000_000_000_000},
+            {"level": "2T", "target": 2_000_000_000_000, "achieved": current_mcap >= 2_000_000_000_000},
+            {"level": "3T", "target": 3_000_000_000_000, "achieved": current_mcap >= 3_000_000_000_000},
+        ]
+
+        results.append({
+            "symbol": sym,
+            "current_price": price,
+            "shares_outstanding": shares_out,
+            "market_cap": current_mcap,
+            "target_milestone": target_milestone,
+            "days_to_target": days_to_milestone,
+            "required_daily_pct": round((target_milestone / current_mcap) ** (1/252) - 1, 4) if days_to_milestone else 0,
+            "milestones": [
+                {"level": m["level"], "achieved": m["achieved"]}
+                for m in milestones
+            ],
+        })
+
+    return {"metric": "marketcap_milestones", "results": results}
+
+
+# ============================================================================
 # Discord Bot Webhook Endpoint
 # ============================================================================
 

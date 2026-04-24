@@ -114,6 +114,21 @@ python discord_bot.py
 | `/health/circuit` | Circuit status for all providers |
 | `POST /health/circuit/{provider}/reset` | Reset circuit breaker |
 
+#### Options Dashboard Metrics
+| Endpoint | Description |
+|----------|-------------|
+| `/options/highest-call-vol` | Highest call volume change (7d default) |
+| `/options/highest-put-vol` | Highest put volume change |
+| `/options/high-vol-cheapies` | High vol, low price contracts |
+| `/options/high-vol-leaps` | High volume LEAPs (6+ months) |
+| `/options/most-otm-strikes` | Most OTM strikes |
+| `/options/large-otm-oi` | Large OTM open interest |
+
+#### Market Cap Milestone Tracker
+| Endpoint | Description |
+|----------|-------------|
+| `/marketcap/milestones` | Market cap milestone tracking |
+
 #### Whale Threshold Alerts
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -122,6 +137,16 @@ python discord_bot.py
 | `/alerts/config/{symbol}` | DELETE | Delete alert |
 | `/alerts/check` | GET | Check trade against thresholds |
 | `/alerts/whale-feed` | GET | Recent whale activity |
+
+```bash
+# Options metrics examples:
+curl "/options/highest-call-vol?symbol=AAPL&days_back=14"
+curl "/options/high-vol-cheapies?max_ask=3.0&min_volume=5000"
+curl "/options/high-vol-leaps?min_months=12"
+curl "/options/most-otm-strikes?min_otm_pct=15"
+curl "/options/large-otm-oi?min_oi=50000"
+curl "/marketcap/milestones?target_milestone=2000000000000"
+```
 
 ```bash
 # Default thresholds:
