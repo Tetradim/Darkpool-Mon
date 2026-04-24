@@ -7,6 +7,26 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 - **Real-time Bar Charts**: Buy/Sell volume visualization
 - **Live Transaction Feed**: Multi-million dollar trades
 - **Summary Statistics**: Buy/Sell ratio, volume tracking
+- **Interactive Ticker Focus**: Click any stock card to filter dashboard views
+
+## Recommended Next Upgrades
+If you want this to become a serious monitoring bot (not only a demo simulator), prioritize:
+
+1. **Real dark pool + tape data ingestion**
+   - Add a backend service that consumes ATS/TRF prints, SIP/CTA feed, or your broker/API source.
+   - Store normalized events in PostgreSQL/TimescaleDB.
+2. **Alerting and anomaly detection**
+   - Trigger Discord/Telegram/email/webhook alerts for block prints, unusual buy:sell imbalance, and repeat sweeps.
+   - Add rolling z-score / percentile thresholds instead of a static slider.
+3. **Persistent historical analytics**
+   - Keep minute and hourly aggregates so charts can show 1D/1W/1M without re-simulation.
+   - Add top venue, top counterparty bucket, and session segmentation.
+4. **Execution-quality frontend features**
+   - Add multi-panel charting (volume, notional, price impact).
+   - Add sortable table with export (CSV/JSON), saved filters, and replay mode.
+5. **Production reliability**
+   - Add tests, typed interfaces, and health checks.
+   - Run ingestion + UI with Docker Compose and a monitored deploy target.
 
 ## Tech Stack
 - React + Vite
