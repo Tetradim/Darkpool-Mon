@@ -6,7 +6,7 @@ import {
 import {
   Activity, TrendingUp, TrendingDown, Pause, Play, Filter,
   DollarSign, Clock, BarChart3, PieChart, Zap, RefreshCw, Bell,
-  Download, AlertTriangle
+  Download, AlertTriangle, Settings
 } from 'lucide-react';
 import {
   MAG7_STOCKS,
@@ -17,8 +17,10 @@ import {
   formatMillionsCurrency,
   formatVolume
 } from './dataGenerator';
+import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
+import SettingsModal from './SettingsModal';
 
-const STORAGE_KEY = 'darkpool-monitor-settings-v2';
+const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
 
 const exportTransactionsToCsv = (rows) => {
@@ -194,6 +196,13 @@ export default function App() {
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
+  const [settings, setSettings] = useState(() => {
+    // Load from localStorage or use defaults
+    const persisted = localStorage.getItem(STORAGE_KEY);
+    const saved = persisted ? JSON.parse(persisted) : {};
+    return { ...DEFAULT_SETTINGS, ...saved };
+  });
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [feedSort, setFeedSort] = useState('LATEST');
   const [chartData, setChartData] = useState({});
   const [stockPrices, setStockPrices] = useState(MAG7_STOCKS);
@@ -363,6 +372,15 @@ export default function App() {
             <DollarSign size={14} className="text-accent-cyan" />
             <span className="font-mono text-sm text-white">{formatMillionsCurrency(totalVolume)}</span>
           </div>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setSettingsModalOpen(true)}
+            className="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
+            title="Settings"
+          >
+            <Settings size={20} />
+          </button>
         </div>
       </header>
 
@@ -444,8 +462,28 @@ export default function App() {
             value={whaleThreshold}
             onChange={(event) => setWhaleThreshold(Number(event.target.value))}
             className="w-24 accent-accent-yellow"
+            style={{ accentColor: 'var(--color-accent-yellow)' }}
           />
           <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
+        </div>
+
+        {/* Greeks Display */}
+        <div className="flex items-center gap-1 ml-2">
+          {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
+            <label
+              key={name}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
+              title={name}
+            >
+              <input type="checkbox" className="sr-only" />
+              <span 
+                className="font-bold text-sm"
+                style={{ color: 'var(--color-accent)' }}
+              >
+                {symbol}
+              </span>
+            </label>
+          ))}
         </div>
 
         <div className="flex items-center gap-2">
@@ -672,6 +710,16 @@ export default function App() {
           </div>
         </div>
       </div>
+      
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        settings={settings}
+        onSettingsChange={(newSettings) => {
+          setSettings(newSettings);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+        }}
+      />
     </div>
   );
 }

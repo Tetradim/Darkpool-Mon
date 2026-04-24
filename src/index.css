@@ -8,11 +8,55 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* Default theme - TradingView style */
+  --color-bg: #1a1a2e;
+  --color-bg-alt: #16213e;
+  --color-card: #1f2937;
+  --color-card-hover: #374151;
+  --color-text: #ffffff;
+  --color-text-secondary: #9ca3af;
+  --color-accent: #00d4ff;
+  --color-accent-green: #22c55e;
+  --color-accent-red: #ef4444;
+  --color-accent-yellow: #f59e0b;
+  --color-border: #374151;
+}
+
+/* Theme-specific accent colors */
+.theme-cyberpunk {
+  --color-accent: #ff00ff;
+  --color-accent-green: #00ff88;
+  --color-accent-red: #ff0044;
+}
+
+.theme-matrix {
+  --color-accent: #00ff00;
+  --color-accent-green: #00cc00;
+  --color-accent-red: #ff0000;
+}
+
+.theme-fire {
+  --color-accent: #ff6600;
+  --color-accent-green: #ff4400;
+  --color-accent-red: #ff0000;
+}
+
+.theme-monochrome {
+  --color-accent: #ffffff;
+  --color-accent-green: #cccccc;
+  --color-accent-red: #666666;
+}
+
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background-color: #0d1117;
-  color: #ffffff;
+  background-color: var(--color-bg);
+  color: var(--color-text);
   min-height: 100vh;
+}
+
+#root {
+  background-color: var(--color-bg);
 }
 
 ::-webkit-scrollbar {
