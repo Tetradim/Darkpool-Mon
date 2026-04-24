@@ -1,20 +1,131 @@
 """Darkpool Monitor Backend - Python server with FINRA API integration."""
 
 import os
+import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Literal
+from enum import Enum
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel
+from collections import defaultdict
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Darkpool Monitor API",
     description="Backend for real-time darkpool monitoring with FINRA OTC data",
     version="1.0.0",
 )
+
+# ============================================================================
+# Circuit Breaker with Exponential Backoff
+# ============================================================================
+
+class CircuitState(Enum):
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"         # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing recovery
+
+
+class CircuitBreaker:
+    """Circuit breaker with exponential backoff."""
+    
+    def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 30, max_backoff: int = 60):
+        self.name = name
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout  # seconds before retry
+        self.max_backoff = max_backoff
+        self.failures = 0
+        self.state = CircuitState.CLOSED
+        self.last_failure: datetime | None = None
+        self.backoff_seconds = 1
+    
+    def record_failure(self):
+        self.failures += 1
+        self.last_failure = datetime.utcnow()
+        if self.failures >= self.failure_threshold:
+            self.state = CircuitState.OPEN
+            logger.warning(f"Circuit {self.name} OPEN after {self.failures} failures")
+    
+    def record_success(self):
+        self.failures = 0
+        self.state = CircuitState.CLOSED
+        self.backoff_seconds = 1
+    
+    def can_execute(self) -> bool:
+        if self.state == CircuitState.CLOSED:
+            return True
+        
+        if self.state == CircuitState.OPEN and self.last_failure:
+            elapsed = (datetime.utcnow() - self.last_failure).total_seconds()
+            if elapsed >= self.backoff_seconds:
+                self.state = CircuitState.HALF_OPEN
+                return True
+            # Exponential backoff
+            self.backoff_seconds = min(self.backoff_seconds * 2, self.max_backoff)
+        
+        return self.state == CircuitState.HALF_OPEN
+    
+    def get_status(self) -> dict:
+        return {
+            "name": self.name,
+            "state": self.state.value,
+            "failures": self.failures,
+            "next_retry_seconds": self.backoff_seconds if self.state == CircuitState.OPEN else 0,
+        }
+
+
+# Circuit breakers for each provider
+CIRCUITS = {
+    "finra": CircuitBreaker("finra", failure_threshold=3, timeout=30, max_backoff=60),
+    "polygon": CircuitBreaker("polygon", failure_threshold=5, timeout=60, max_backoff=120),
+    "intrinio": CircuitBreaker("intrinio", failure_threshold=3, timeout=60, max_backoff=120),
+}
+
+
+def with_circuit_break(provider_name: str):
+    """Decorator for circuit breaker protection."""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            circuit = CIRCUITS.get(provider_name)
+            if not circuit:
+                return await func(*args, **kwargs)
+            
+            if not circuit.can_execute():
+                raise HTTPException(503, f"Provider {provider_name} circuit OPEN. Retry in {circuit.backoff_seconds}s")
+            
+            try:
+                result = await func(*args, **kwargs)
+                circuit.record_success()
+                return result
+            except Exception as e:
+                circuit.record_failure()
+                raise
+        
+        return wrapper
+    return decorator
+
+
+@app.get("/health/circuit")
+async def get_circuit_status():
+    """Get circuit breaker status for all providers."""
+    return {"providers": {name: c.get_status() for name, c in CIRCUITS.items()}}
+
+
+@app.post("/health/circuit/{provider}/reset")
+async def reset_circuit(provider: str):
+    """Manually reset a circuit breaker."""
+    if provider in CIRCUITS:
+        CIRCUITS[provider].record_success()
+        return {"status": "reset", "provider": provider}
+    raise HTTPException(404, f"Provider {provider} not found")
+
 
 # ============================================================================
 # Provider Abstraction
@@ -885,6 +996,207 @@ async def get_vwap_analysis(
         "nbbo": result.get("nbbo"),
     }
 
+# ============================================================================
+# Order Book Imbalance
+# ============================================================================
+
+# Import for orderbook
+from collections import defaultdict
+
+@app.get("/orderbook/imbalance")
+async def get_orderbook_imbalance(
+    symbol: str = Query(..., description="Stock symbol"),
+    levels: int = Query(10, description="Order book levels"),
+):
+    """Get order book imbalance analysis.
+    
+    Shows:
+    - Bid/Ask size imbalance
+    - Cumulative depth at each level  
+    - Order book pressure indicator
+    """
+    from dataGenerator import MAG7_STOCKS
+    
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    mid = stock.get("basePrice", 100)
+    
+    # Generate synthetic order book
+    bid_levels = []
+    ask_levels = []
+    
+    for i in range(levels):
+        bid_px = mid - (i + 1) * 0.05
+        bid_size = int(50000 * (1 + i * 0.2) * (0.9 + 0.2 * (i % 3)))
+        bid_levels.append({"price": round(bid_px, 2), "size": bid_size})
+        
+        ask_px = mid + (i + 1) * 0.05
+        ask_size = int(50000 * (1 + i * 0.2) * (0.9 + 0.2 * ((i + 1) % 3)))
+        ask_levels.append({"price": round(ask_px, 2), "size": ask_size})
+    
+    # Calculate imbalance
+    bid_total = sum(b["size"] for b in bid_levels)
+    ask_total = sum(a["size"] for a in ask_levels)
+    total = bid_total + ask_total
+    
+    imbalance = (bid_total - ask_total) / total if total > 0 else 0
+    
+    # Calculate pressure
+    if imbalance > 0.3:
+        pressure = "BUY_BIAS"
+        emoji = "🟢"
+    elif imbalance < -0.3:
+        pressure = "SELL_BIAS"
+        emoji = "🔴"
+    else:
+        pressure = "BALANCED"
+        emoji = "⚖️"
+    
+    # Cumulative imbalance at each level
+    imbalance_levels = []
+    cum_bid = 0
+    cum_ask = 0
+    
+    for i in range(min(len(bid_levels), len(ask_levels))):
+        cum_bid += bid_levels[i]["size"]
+        cum_ask += ask_levels[i]["size"]
+        level_imbalance = (cum_bid - cum_ask) / (cum_bid + cum_ask) if (cum_bid + cum_ask) > 0 else 0
+        imbalance_levels.append({
+            "level": i + 1,
+            "bid_cum": cum_bid,
+            "ask_cum": cum_ask,
+            "imbalance": round(level_imbalance, 3),
+        })
+    
+    return {
+        "symbol": symbol.upper(),
+        "source": "synthetic",
+        "metrics": {
+            "bid_total": bid_total,
+            "ask_total": ask_total,
+            "imbalance_ratio": round(imbalance, 3),
+            "pressure": pressure,
+            "emoji": emoji,
+        },
+        "levels": imbalance_levels[:5],
+        "interpretation": f"Order book {pressure}: {imbalance*100:+.1f}% bid bias",
+    }
+
+
+# ============================================================================
+# Volume Profile
+# ============================================================================
+
+@app.get("/volume/profile")
+async def get_volume_profile(
+    symbol: str = Query(..., description="Stock symbol"),
+    bins: int = Query(20, description="Price bins"),
+):
+    """Get volume profile analysis."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+    
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    mid = stock.get("basePrice", 100)
+    
+    random.seed(hash(symbol.upper()))
+    profile = []
+    
+    for i in range(bins):
+        bin_low = mid - 10 + (i * (20 / bins))
+        bin_high = bin_low + (20 / bins)
+        vol = int(100000 * (1 + 2 * (1 - abs(i - bins/2) / (bins/1))) + random.randint(-10000, 10000)
+        profile.append({
+            "bin": i + 1,
+            "price_low": round(bin_low, 2),
+            "price_high": round(bin_high, 2),
+            "volume": max(0, vol),
+        })
+    
+    profile_sorted = sorted(profile, key=lambda x: x["volume"], reverse=True)
+    total_vol = sum(p["volume"] for p in profile)
+    vpoc = profile_sorted[0]
+    
+    # Value area (70%)
+    va_vol = 0
+    va_target = total_vol * 0.70
+    value_area = []
+    for p in profile_sorted:
+        if va_vol >= va_target:
+            break
+        value_area.append(p)
+        va_vol += p["volume"]
+    
+    return {
+        "symbol": symbol.upper(),
+        "source": "synthetic",
+        "analysis": {
+            "vpoc_price": vpoc["price_low"],
+            "vpoc_volume": vpoc["volume"],
+            "total_volume": total_vol,
+            "value_area": {"low": min(va["price_low"] for va in value_area), "high": max(va["price_high"] for va in value_area), "volume_pct": 70},
+        },
+    }
+
+
+# ============================================================================
+# Time-of-Day Sentiment
+# ============================================================================
+
+@app.get("/sentiment/timeofday")
+async def get_timeofday_sentiment(symbol: str = Query(...)):
+    """Get time-of-day sentiment."""
+    now = datetime.utcnow()
+    et_hour = (now.hour - 4) % 24
+    
+    if 4 <= et_hour < 9:
+        session, name, desc, rec = "pre", "Pre-Market", "4:00 - 9:30 AM ET", "Cautious"
+    elif 9 <= et_hour < 16:
+        session, name, desc, rec = "regular", "Regular Hours", "9:30 AM - 4:00 PM ET", "Trade"
+    elif 16 <= et_hour < 20:
+        session, name, desc, rec = "after", "After Hours", "4:00 - 8:00 PM ET", "Cautious"
+    else:
+        session, name, desc, rec = "closed", "Market Closed", "8:00 PM - 4:00 AM ET", "Wait"
+    
+    return {"symbol": symbol.upper(), "session": session, "session_info": {"name": name, "description": desc}, "recommendation": rec, "et_timestamp": now.isoformat()}
+
+
+# ============================================================================
+# Complete Analysis
+# ============================================================================
+
+@app.get("/analysis/complete")
+async def get_complete_analysis(symbol: str = Query("AAPL")):
+    """Get complete analysis."""
+    # Get all components
+    vwap = await get_vwap_analysis(symbol, 30)
+    ob = await get_orderbook_imbalance(symbol, 10)
+    vol = await get_volume_profile(symbol, 20)
+    tod = await get_timeofday_sentiment(symbol)
+    
+    # Combine signals
+    signals = [
+        {"source": "vwap", "value": vwap.get("analysis", {}).get("sentiment", "NEUTRAL"), "weight": 0.3},
+        {"source": "orderbook", "value": ob.get("metrics", {}).get("pressure", "BALANCED"), "weight": 0.25},
+        {"source": "timeofday", "value": "BULLISH" if tod.get("recommendation") == "Trade" else "NEUTRAL", "weight": 0.15},
+    ]
+    
+    bullish = sum(1 for s in signals if s["value"] in ["BULLISH", "BUY_BIAS"])
+    bearish = sum(1 for s in signals if s["value"] in ["BEARISH", "SELL_BIAS"])
+    
+    if bullish > bearish:
+        overall, emoji = "BULLISH", "🐂"
+    elif bearish > bullish:
+        overall, emoji = "BEARISH", "🐻"
+    else:
+        overall, emoji = "NEUTRAL", "⚖️"
+    
+    return {"symbol": symbol.upper(), "generated_at": datetime.utcnow().isoformat(), "overall_sentiment": overall, "emoji": emoji, "signals": signals, "components": {"vwap": vwap.get("analysis"), "orderbook": ob.get("metrics"), "volume_profile": vol.get("analysis"), "timeofday": tod}}
+
+
+# ============================================================================
+# Discord Bot Webhook Endpoint
+# ============================================================================
+
 class AlertWebhook(BaseModel):
     """Webhook alert payload."""
 
@@ -928,7 +1240,7 @@ async def send_alertWebhook(
 
 
 # ============================================================================
-# Slash Command Handler (for Discord interaction)
+# Slash Command Handler
 # ============================================================================
 
 class SlashCommand(BaseModel):
@@ -953,16 +1265,8 @@ async def handle_slash_command(command: SlashCommand):
     if cmd_name == "darkpool":
         symbol = options.get("symbol")
         tier = options.get("tier", "T1")
-
         data = await aget_full_data(symbol, tier, True) if symbol else []
-        result_count = len(data)
-
-        return {
-            "type": 4,  # CHANNEL_MESSAGE_WITH_SOURCE
-            "data": {
-                "content": f"📊 Darkpool Data for {symbol or 'ALL'}: {result_count:,} records (Tier {tier})"
-            },
-        }
+        return {"type": 4, "data": {"content": f"📊 Darkpool Data for {symbol or 'ALL'}: {len(data):,} records (Tier {tier})"}}
 
     return {"type": 4, "data": {"content": "Unknown command"}}
 

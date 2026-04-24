@@ -103,8 +103,23 @@ python discord_bot.py
 | `/nbbo/quote` | Get bid/ask for symbol |
 | `/nbbo/trades` | Trades vs NBBO with aggression |
 | `/vwap/analysis` | VWAP, sentiment, aggression |
+| `/orderbook/imbalance` | Order book pressure |
+| `/volume/profile` | VPOC, value area |
+| `/sentiment/timeofday` | Market session timing |
+| `/analysis/complete` | All signals combined |
 
-#### VWAP Interpretation
+#### Circuit Breaker / Error Handling
+| Endpoint | Description |
+|----------|-------------|
+| `/health/circuit` | Circuit status for all providers |
+| `POST /health/circuit/{provider}/reset` | Reset circuit breaker |
+
+```bash
+# Circuit behavior:
+# CLOSED → Normal operation
+# OPEN → Failing, exponential backoff (1s → 2s → 4s → 8s ... max 60s)
+# HALF_OPEN → Testing recovery
+```
 ```
 BUY above ask  = Aggressive buying (taking liquidity) → Bullish
 SELL below bid = Aggressive selling (hitting) → Bearish
