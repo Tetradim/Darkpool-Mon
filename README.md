@@ -97,6 +97,21 @@ python discord_bot.py
 | `/grafana/table` | Infinity JSON table | Use with Infinity plugin |
 | `/grafana/timeseries` | Grafana timeseries | Use with native TS panel |
 
+#### VWAP / NBBO Integration
+| Endpoint | Description |
+|----------|-------------|
+| `/nbbo/quote` | Get bid/ask for symbol |
+| `/nbbo/trades` | Trades vs NBBO with aggression |
+| `/vwap/analysis` | VWAP, sentiment, aggression |
+
+#### VWAP Interpretation
+```
+BUY above ask  = Aggressive buying (taking liquidity) → Bullish
+SELL below bid = Aggressive selling (hitting) → Bearish
+VWAP > mid    = Institutional buying pressure
+VWAP < mid    = Institutional selling pressure
+```
+
 #### How to Connect to Grafana
 ```bash
 # Option 1: Infinity Plugin (FREE)

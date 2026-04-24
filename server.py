@@ -578,8 +578,312 @@ async def get_grafana_timeseries(
     ]
 
 # ============================================================================
-# Discord Bot Webhook Endpoint
+# VWAP / NBBO Analysis
 # ============================================================================
+
+class NBBOQuote(BaseModel):
+    """National Best Bid and Offer."""
+
+    symbol: str
+    bid: float
+    ask: float
+    bid_size: int
+    ask_size: int
+    timestamp: str
+
+
+class TradePrint(BaseModel):
+    """Individual trade print."""
+
+    symbol: str
+    price: float
+    size: int
+    is_buy: bool  # True = buy, False = sell
+    vwap: float | None = None
+    is_aggressive: bool | None = None  # Above ask or below bid
+    source: str  # exchange
+
+
+@app.get("/nbbo/quote")
+async def get_nbbo_quote(
+    symbol: str = Query(..., description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+):
+    """Get current NBBO quote for a symbol.
+    
+    Returns bid/ask from all exchanges with size.
+    """
+    import httpx
+
+    if provider == "polygon":
+        api_key = os.getenv("POLYGON_API_KEY", "")
+        if not api_key:
+            raise HTTPException(401, "Polygon API key not configured")
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.polygon.io/v3/quotes/{symbol}",
+                params={"timestamp": "now"},
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get("results", [])
+            if results:
+                # Find best bid and ask
+                best_bid = {"price": 0, "size": 0}
+                best_ask = {"price": float("inf"), "size": 0}
+
+                for q in results:
+                    if q.get("side") == "bid":
+                        if q.get("price", 0) > best_bid["price"]:
+                            best_bid = {"price": q.get("price"), "size": q.get("size")}
+                    else:
+                        if q.get("price", float("inf")) < best_ask["price"]:
+                            best_ask = {"price": q.get("price"), "size": q.get("size")}
+
+                return {
+                    "symbol": symbol,
+                    "bid": best_bid["price"],
+                    "bid_size": best_bid["size"],
+                    "ask": best_ask["price"],
+                    "ask_size": best_ask["size"],
+                    "mid": (best_bid["price"] + best_ask["price"]) / 2,
+                    "spread": best_ask["price"] - best_bid["price"],
+                    "spread_bps": (best_ask["price"] - best_bid["price"]) / best_bid["price"] * 10000
+                    if best_bid["price"] > 0 else 0,
+                    "timestamp": results[0].get("timestamp"),
+                }
+
+    # Fallback: Generate synthetic NBBO for demo
+    from dataGenerator import MAG7_STOCKS
+
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    price = stock.get("basePrice", 100)
+    spread = price * 0.001  # 10 bps spread
+
+    return {
+        "symbol": symbol.upper(),
+        "bid": round(price - spread / 2, 2),
+        "bid_size": 10000,
+        "ask": round(price + spread / 2, 2),
+        "ask_size": 10000,
+        "mid": price,
+        "spread": round(spread, 2),
+        "spread_bps": 10,
+        "timestamp": datetime.utcnow().isoformat(),
+        "_note": "Synthetic (configure Polygon API key for real data)",
+    }
+
+
+@app.get("/nbbo/trades")
+async def get_nbbo_trades(
+    symbol: str = Query(..., description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+    limit: int = Query(100, description="Max trades"),
+):
+    """Get dark pool trades compared against NBBO.
+    
+    Shows aggressive prints:
+    - BUY above ask = aggressive buying (taking liquidity)
+    - SELL below bid = aggressive selling (hitting liquidity)
+    
+    Calculates VWAP and sentiment.
+    """
+    import httpx
+
+    # Get NBBO first
+    nbbo = await get_nbbo_quote(symbol, provider)
+    bid = nbbo["bid"]
+    ask = nbbo["ask"]
+    mid = nbbo["mid"]
+
+    # Get trades
+    if provider == "polygon":
+        api_key = os.getenv("POLYGON_API_KEY", "")
+        if api_key:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.polygon.io/v3/ticks/{symbol}/trades",
+                    params={"limit": limit, "timestamp": "now"},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                trades = []
+                total_vwap = 0
+                buy_count = 0
+                sell_count = 0
+
+                for t in data.get("results", []):
+                    price = t.get("p", 0)
+                    size = t.get("s", 0)
+                    exchange = t.get("x", "")
+
+                    # Determine if buy or sell based on price vs NBBO
+                    if price >= ask:
+                        direction = "BUY"
+                        is_aggressive = True
+                    elif price <= bid:
+                        direction = "SELL"
+                        is_aggressive = True
+                    else:
+                        # Passive - between bid and ask
+                        if price >= mid:
+                            direction = "BUY"
+                        else:
+                            direction = "SELL"
+                        is_aggressive = False
+
+                    if direction == "BUY":
+                        buy_count += 1
+                    else:
+                        sell_count += 1
+
+                    total_vwap += price * size
+
+                    trades.append({
+                        "symbol": symbol,
+                        "price": price,
+                        "size": size,
+                        "direction": direction,
+                        "is_aggressive": is_aggressive,
+                        "exchange": exchange,
+                        "timestamp": t.get("t"),
+                    })
+
+                # Calculate overall VWAP
+                total_size = sum(t["size"] for t in trades)
+                vwap = total_vwap / total_size if total_size > 0 else 0
+
+                return {
+                    "symbol": symbol,
+                    "nbbo": {"bid": bid, "ask": ask, "mid": mid},
+                    "trades": trades[:limit],
+                    "summary": {
+                        "total_trades": len(trades),
+                        "buy_count": buy_count,
+                        "sell_count": sell_count,
+                        "buy_ratio": buy_count / len(trades) if trades else 0.5,
+                        "aggressive_count": sum(1 for t in trades if t["is_aggressive"]),
+                        "vwap": vwap,
+                        "vwap_vs_mid": (vwap - mid) / mid * 100 if mid > 0 else 0,
+                    },
+                }
+
+    # Fallback: Generate synthetic trades
+    import random
+    from dataGenerator import generateTransaction
+
+    trades = []
+    total_vwap = 0
+    total_size = 0
+    buy_count = 0
+    sell_count = 0
+    aggressive_count = 0
+
+    for _ in range(min(limit, 50)):
+        tx = generateTransaction()
+        if tx["symbol"] != symbol.upper():
+            continue
+
+        price = tx["price"]
+        size = tx["size"]
+        direction = tx["direction"]
+
+        # Determine aggression based on price vs NBBO
+        if direction == "BUY":
+            is_aggressive = price >= ask
+            buy_count += 1
+        else:
+            is_aggressive = price <= bid
+            sell_count += 1
+
+        if is_aggressive:
+            aggressive_count += 1
+
+        total_vwap += price * size
+        total_size += size
+
+        trades.append({
+            "symbol": tx["symbol"],
+            "price": price,
+            "size": size,
+            "direction": direction,
+            "is_aggressive": is_aggressive,
+            "exchange": "SYNTH",
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+
+    vwap = total_vwap / total_size if total_size > 0 else 0
+
+    return {
+        "symbol": symbol,
+        "nbbo": {"bid": bid, "ask": ask, "mid": mid},
+        "trades": trades[:limit],
+        "summary": {
+            "total_trades": len(trades),
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+            "buy_ratio": buy_count / len(trades) if trades else 0.5,
+            "aggressive_count": aggressive_count,
+            "vwap": round(vwap, 2),
+            "vwap_vs_mid": round((vwap - mid) / mid * 100, 2),
+        },
+        "_note": "Synthetic (configure Polygon API key for real data)",
+    }
+
+
+@app.get("/vwap/analysis")
+async def get_vwap_analysis(
+    symbol: str = Query(..., description="Stock symbol"),
+    lookback: int = Query(30, description="Number of trades"),
+):
+    """Get VWAP analysis with NBBO comparison.
+    
+    Returns:
+    - VWAP: Volume Weighted Average Price
+    - VWAP vs Mid: % premium/discount to NBBO mid
+    - Aggressive ratio: % of trades taking liquidity
+    - Sentiment: BULLISH/BEARING/NEUTRAL
+    """
+    # Get trades with NBBO
+    result = await get_nbbo_trades(symbol, "polygon" if os.getenv("POLYGON_API_KEY") else "finra", lookback)
+
+    summary = result.get("summary", {})
+    vwap = summary.get("vwap", 0)
+    vwap_vs_mid = summary.get("vwap_vs_mid", 0)
+    buy_ratio = summary.get("buy_ratio", 0.5)
+    aggressive_ratio = summary.get("aggressive_count", 0) / summary.get("total_trades", 1)
+
+    # Determine sentiment
+    if vwap_vs_mid > 0.1 and buy_ratio > 0.6:
+        sentiment = "BULLISH"
+        emoji = "🐂"
+    elif vwap_vs_mid < -0.1 and buy_ratio < 0.4:
+        sentiment = "BEARISH"
+        emoji = "🐻"
+    else:
+        sentiment = "NEUTRAL"
+        emoji = "⚖️"
+
+    return {
+        "symbol": symbol,
+        "analysis": {
+            "vwap": round(vwap, 2),
+            "vwap_vs_mid_pct": round(vwap_vs_mid, 2),
+            "buy_ratio": round(buy_ratio * 100, 1),
+            "aggressive_ratio": round(aggressive_ratio * 100, 1),
+            "sentiment": sentiment,
+            "emoji": emoji,
+            "interpretation": f"{sentiment} sentiment: VWAP {('above' if vwap_vs_mid > 0 else 'below')} mid by {abs(vwap_vs_mid):.2f}%" if abs(vwap_vs_mid) > 0.01 else "Near fair value",
+        },
+        "nbbo": result.get("nbbo"),
+    }
 
 class AlertWebhook(BaseModel):
     """Webhook alert payload."""
