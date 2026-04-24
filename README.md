@@ -63,6 +63,49 @@ If you want this to become a serious monitoring bot (not only a demo simulator),
 - Redis for real-time caching and dedup
 - Docker Compose for deployment
 
+### Backend API (New)
+The project now includes a Python backend with FINRA integration:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the API server
+python server.py
+
+# Run the Discord bot (optional)
+python discord_bot.py
+```
+
+#### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | API info and providers |
+| `/health` | GET | Health check |
+| `/providers` | GET | List available providers |
+| `/darkpool/otc` | GET | Weekly OTC aggregate data |
+| `/darkpool/trades` | GET | Recent darkpool trades |
+| `/alerts/webhook` | POST | Send Discord alert |
+
+#### API Parameters
+- `symbol`: Stock symbol (e.g., AAPL, NVDA)
+- `provider`: finra, polygon, intrinio
+- `tier`: T1 (S&P500), T2 (NMS), OTCE (OTC)
+- `is_ats`: true for ATS, false for Non-ATS
+
+#### Discord Slash Commands
+- `/darkpool symbol:AAPL tier:T1` - Get darkpool data
+- `/setalert symbol:AAPL threshold:100000` - Set whale alert
+- `/alertstatus` - Show active alerts
+- `/removealert symbol:AAPL` - Remove alert
+
+#### Docker Deployment
+```bash
+docker build -t darkpool-monitor .
+docker run -p 8000:8000 darkpool-monitor
+```
+
 ## Tech Stack
 - React + Vite
 - Recharts (charting)
