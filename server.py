@@ -1194,6 +1194,152 @@ async def get_complete_analysis(symbol: str = Query("AAPL")):
 
 
 # ============================================================================
+# Whale Threshold Alerts
+# ============================================================================
+
+class WhaleAlertConfig(BaseModel):
+    """Whale alert configuration."""
+
+    symbol: str
+    min_shares: int = 50000
+    min_dollars: int = 1_000_000  # $1M default
+    active: bool = True
+    webhook_url: str | None = None
+
+
+# In-memory alert store (use Redis/DB in production)
+WHALE_ALERTS: dict[str, dict] = {}
+
+
+@app.get("/alerts/config")
+async def get_alert_configs():
+    """Get all whale alert configurations."""
+    return {"alerts": list(WHALE_ALERTS.values())}
+
+
+@app.post("/alerts/config")
+async def create_alert_config(config: WhaleAlertConfig):
+    """Create a whale alert configuration."""
+    WHALE_ALERTS[config.symbol.upper()] = {
+        "symbol": config.symbol.upper(),
+        "min_shares": config.min_shares,
+        "min_dollars": config.min_dollars,
+        "active": config.active,
+        "webhook_url": config.webhook_url,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    return {"status": "created", "alert": WHALE_ALERTS[config.symbol.upper()]}
+
+
+@app.delete("/alerts/config/{symbol}")
+async def delete_alert_config(symbol: str):
+    """Delete a whale alert configuration."""
+    if symbol.upper() in WHALE_ALERTS:
+        del WHALE_ALERTS[symbol.upper()]
+        return {"status": "deleted", "symbol": symbol.upper()}
+    raise HTTPException(404, f"Alert for {symbol} not found")
+
+
+@app.get("/alerts/check")
+async def check_whale_alert(
+    symbol: str = Query(..., description="Stock symbol"),
+    shares: int = Query(..., description="Trade size in shares"),
+    price: float = Query(..., description="Trade price"),
+):
+    """Check if a trade triggers whale alert."""
+    import httpx
+
+    notional = shares * price
+    triggered = False
+    alert_level = None
+
+    # Check against config
+    config = WHALE_ALERTS.get(symbol.upper(), {"min_shares": 50000, "min_dollars": 1000000, "active": True})
+
+    if not config.get("active", True):
+        return {"triggered": False, "reason": "Alert disabled"}
+
+    if shares >= config.get("min_shares", 50000):
+        triggered = True
+        alert_level = "shares"
+    elif notional >= config.get("min_dollars", 1000000):
+        triggered = True
+        alert_level = "dollars"
+
+    # Send webhook if triggered
+    if triggered and config.get("webhook_url"):
+        embed = {
+            "title": f"🐋 WHALE ALERT: {symbol.upper()}",
+            "description": f"**{shares:,} shares** @ ${price:.2f}",
+            "color": 0xFF6B00,
+            "fields": [
+                {"name": "Notional Value", "value": f"${notional:,.0f}", "inline": True},
+                {"name": "Triggered By", "value": alert_level, "inline": True},
+                {"name": "Threshold", "value": f"{config.get('min_shares'):,} shares or ${config.get('min_dollars'):,}", "inline": True},
+            ],
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        payload = {
+            "content": "🐋 **WHALE ALERT**",
+            "embeds": [embed],
+        }
+
+        async with httpx.AsyncClient() as client:
+            await client.post(config["webhook_url"], json=payload, timeout=10.0)
+
+    return {
+        "triggered": triggered,
+        "reason": f"{alert_level} threshold exceeded" if triggered else "No threshold exceeded",
+        "notional": notional,
+        "symbol": symbol.upper(),
+        "shares": shares,
+        "price": price,
+        "config": config,
+    }
+
+
+@app.get("/alerts/whale-feed")
+async def get_whale_feed(
+    symbol: str = Query(None, description="Stock symbol filter"),
+    min_shares: int = Query(50000, description="Minimum shares"),
+    min_dollars: int = Query(1000000, description="Minimum dollars"),
+    limit: int = Query(100, description="Max results"),
+):
+    """Get recent whale activity feed."""
+    from dataGenerator import generateTransaction, MAG7_STOCKS
+
+    # Generate transactions and filter
+    whales = []
+    for _ in range(limit * 3):
+        tx = generateTransaction()
+        notional = tx["size"] * tx["price"]
+
+        # Apply filters
+        if symbol and tx["symbol"] != symbol.upper():
+            continue
+        if tx["size"] < min_shares and notional < min_dollars:
+            continue
+
+        whales.append({
+            "id": tx["id"],
+            "symbol": tx["symbol"],
+            "direction": tx["direction"],
+            "shares": tx["size"],
+            "price": tx["price"],
+            "notional": notional,
+            "timestamp": tx["timestamp"].isoformat(),
+            "is_whale": True,
+        })
+
+    return {
+        "whales": whales[:limit],
+        "count": len(whales[:limit]),
+        "filters": {"symbol": symbol, "min_shares": min_shares, "min_dollars": min_dollars},
+    }
+
+
+# ============================================================================
 # Discord Bot Webhook Endpoint
 # ============================================================================
 

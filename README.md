@@ -114,6 +114,28 @@ python discord_bot.py
 | `/health/circuit` | Circuit status for all providers |
 | `POST /health/circuit/{provider}/reset` | Reset circuit breaker |
 
+#### Whale Threshold Alerts
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/alerts/config` | GET | List all alert configs |
+| `/alerts/config` | POST | Create whale alert |
+| `/alerts/config/{symbol}` | DELETE | Delete alert |
+| `/alerts/check` | GET | Check trade against thresholds |
+| `/alerts/whale-feed` | GET | Recent whale activity |
+
+```bash
+# Default thresholds:
+# - 50,000 shares OR
+# - $1,000,000 notional
+
+# Create alert:
+curl -X POST /alerts/config \
+  -d '{"symbol": "NVDA", "min_shares": 25000, "min_dollars": 500000, "webhook_url": "https://..."}'
+
+# Check trade:
+curl "/alerts/check?symbol=NVDA&shares=75000&price=900"
+```
+
 ```bash
 # Circuit behavior:
 # CLOSED → Normal operation
