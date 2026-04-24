@@ -47,11 +47,11 @@ If you want this to become a serious monitoring bot (not only a demo simulator),
 ### Reference Tools
 | Tool | Key Features to Borrow |
 |------|----------------------|
-| FlowAlgo | Big prints stream, level clustering, urgency alerts |
-| Cheddar Flow | Historical backtesting, price-level accumulation, export UX |
-| Tradytics | Dark flow heatmap, top prints dashboard |
-| BlackBoxStocks | Scanner-first workflow, one-pane operations |
-| OpenBB | Slash-command bot workflows, Discord automation |
+| [FlowAlgo](https://flowalgo.com) | Big prints stream, level clustering, urgency alerts |
+| [Cheddar Flow](https://www.cheddarflow.com/features/dark-pool-data/) | Historical backtesting, price-level accumulation, export UX |
+| [Tradytics](https://tradytics.com) | Dark flow heatmap, top prints dashboard |
+| [BlackBoxStocks](https://blackboxstocks.com) | Scanner-first workflow, one-pane operations |
+| [OpenBB](https://docs.openbb.co/platform/reference/equity/darkpool) | Slash-command bot workflows, Discord automation |
 
 ### Tech Additions for Production
 - Node.js/Express backend for API ingestion
