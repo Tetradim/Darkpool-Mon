@@ -88,6 +88,33 @@ python discord_bot.py
 | `/darkpool/trades` | GET | Recent darkpool trades |
 | `/alerts/webhook` | POST | Send Discord alert |
 
+#### Grafana Integration
+| Endpoint | Description | Use Case |
+|----------|-------------|---------|
+| `/visualization/area` | Plotly area chart JSON | Paste into HTML panel |
+| `/visualization/bar` | Plotly bar chart JSON | Paste into HTML panel |
+| `/visualization/combined` | Plotly bar+line chart | Bar+line combo |
+| `/grafana/table` | Infinity JSON table | Use with Infinity plugin |
+| `/grafana/timeseries` | Grafana timeseries | Use with native TS panel |
+
+#### How to Connect to Grafana
+```bash
+# Option 1: Infinity Plugin (FREE)
+# 1. Install: grafana-cli plugins install yesoreyeram-infinity-datasource
+# 2. Add Data Source → Infinity
+# 3. URL: http://localhost:8000/grafana/table?symbol=AAPL
+# 4. Use UQL: parse-json
+
+# Option 2: HTTP Data Source
+# 1. Add Data Source → HTTP
+# 2. URL: http://localhost:8000
+# 3. Query with: /grafana/table?symbol=AAPL
+
+# Option 3: HTML Panel (for Plotly)
+# 1. Install: Grafana HTML Panel plugin
+# 2. Paste endpoint URL in src attribute
+```
+
 #### API Parameters
 - `symbol`: Stock symbol (e.g., AAPL, NVDA)
 - `provider`: finra, polygon, intrinio
