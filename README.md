@@ -8,6 +8,10 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 - **Live Transaction Feed**: Multi-million dollar trades
 - **Summary Statistics**: Buy/Sell ratio, volume tracking
 - **Interactive Ticker Focus**: Click any stock card to filter dashboard views
+- **Smart Alerts Panel**: Whale print + anomaly detection (z-score based)
+- **Filter Persistence**: Remembers selected stock/timeframe/threshold/sort with localStorage
+- **CSV Export**: Export current filtered transaction feed for journaling or downstream analysis
+- **Feed Sorting**: Switch between latest-first and largest-first views
 
 ## Recommended Next Upgrades
 If you want this to become a serious monitoring bot (not only a demo simulator), prioritize:
@@ -71,3 +75,10 @@ npm run dev
 ```
 
 Open http://localhost:5173 to view the dashboard.
+
+## Suggested Architecture Upgrade (Next Step)
+To move from simulator to production intelligence:
+- Add a backend ingestion service (TRF/ATS, broker/API, websocket stream) that normalizes prints.
+- Persist events into TimescaleDB/PostgreSQL and pre-aggregate minute bars.
+- Push server-side alerts over websocket (not only UI-only alerts).
+- Add auth + user-defined watchlists + custom alert thresholds.

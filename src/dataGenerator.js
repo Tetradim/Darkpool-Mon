@@ -111,6 +111,11 @@ export const formatCurrency = (value) => {
   }).format(value);
 };
 
+// Format values represented in millions of dollars as USD currency
+export const formatMillionsCurrency = (valueInMillions) => {
+  return formatCurrency(valueInMillions * 1000000);
+};
+
 // Format large numbers
 export const formatVolume = (value) => {
   if (value >= 1000000) {
@@ -120,9 +125,4 @@ export const formatVolume = (value) => {
     return `${(value / 1000).toFixed(1)}K`;
   }
   return value.toString();
-};
-
-// Format values represented in millions of dollars as USD currency
-export const formatMillionsCurrency = (valueInMillions) => {
-  return formatCurrency(valueInMillions * 1000000);
 };
