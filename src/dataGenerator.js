@@ -121,3 +121,11 @@ export const formatVolume = (value) => {
   }
   return value.toString();
 };
+
+// Format currency for millions display
+export const formatMillionsCurrency = (value) => {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}K`;
+  }
+  return value.toFixed(0);
+};

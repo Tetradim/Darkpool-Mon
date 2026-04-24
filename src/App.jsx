@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Area, AreaChart
+  Area, AreaChart
 } from 'recharts';
 import {
   Activity, TrendingUp, TrendingDown, Pause, Play, Filter,
@@ -13,11 +13,12 @@ import {
   getWeightedRandomStock,
   generateHistoricalData,
   formatCurrency,
+  formatMillionsCurrency,
   formatVolume
 } from './dataGenerator';
 
 // Stock Card Component
-const StockCard = ({ stock, data, isActive }) => {
+const StockCard = ({ stock, data, isActive, onClick }) => {
   const latestData = data[data.length - 1] || { buyVolume: 0, sellVolume: 0 };
   const totalVolume = latestData.totalVolume || 0;
   const intensity = Math.min(totalVolume / 25, 1);
@@ -29,10 +30,13 @@ const StockCard = ({ stock, data, isActive }) => {
   const isPositive = priceChange >= 0;
 
   return (
-    <div className={`
+    <button
+      onClick={onClick}
+      className={`
       relative overflow-hidden rounded-xl p-4 transition-all duration-300 cursor-pointer
       ${isActive ? 'bg-dark-700 ring-2 ring-accent-cyan' : 'bg-dark-800 hover:bg-dark-700'}
-    `}>
+    `}
+    >
       {/* Intensity Ring */}
       <div 
         className="absolute top-0 right-0 w-20 h-20 opacity-20"
@@ -88,7 +92,7 @@ const StockCard = ({ stock, data, isActive }) => {
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -150,16 +154,23 @@ export default function App() {
   const [chartData, setChartData] = useState({});
   const [stockPrices, setStockPrices] = useState(MAG7_STOCKS);
   const [newTransactionId, setNewTransactionId] = useState(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const feedRef = useRef(null);
+  const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
 
   // Initialize chart data for all stocks
   useEffect(() => {
     const initialData = {};
     Object.keys(MAG7_STOCKS).forEach(symbol => {
-      initialData[symbol] = generateHistoricalData(symbol, timeframe === '1H' ? 1 : timeframe === '4H' ? 4 : 24);
+      initialData[symbol] = generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe]);
     });
     setChartData(initialData);
   }, [timeframe]);
+
+  useEffect(() => {
+    const clockTimer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
 
   // Generate new transactions
   useEffect(() => {
@@ -182,9 +193,29 @@ export default function App() {
         ...prev,
         [stock.symbol]: {
           ...prev[stock.symbol],
-          basePrice: stock.basePrice + (transaction.direction === 'BUY' ? 0.05 : -0.05)
+          basePrice: Math.max(
+            0.01,
+            prev[stock.symbol].basePrice + (transaction.direction === 'BUY' ? 0.05 : -0.05)
+          )
         }
       }));
+
+      // Push live transaction volume into selected stock's chart series
+      setChartData(prev => {
+        const series = prev[stock.symbol] || [];
+        const nextPoint = {
+          time: Date.now(),
+          label: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          buyVolume: transaction.direction === 'BUY' ? transaction.size : 0,
+          sellVolume: transaction.direction === 'SELL' ? transaction.size : 0,
+          totalVolume: transaction.size,
+          price: transaction.price,
+        };
+        return {
+          ...prev,
+          [stock.symbol]: [...series.slice(-47), nextPoint],
+        };
+      });
     }, 1500 + Math.random() * 1500);
 
     return () => clearInterval(interval);
@@ -241,7 +272,7 @@ export default function App() {
           <div className="flex items-center gap-2 text-gray-400">
             <Clock size={16} />
             <span className="font-mono text-sm">
-              {new Date().toLocaleTimeString()}
+              {currentTime.toLocaleTimeString()}
             </span>
           </div>
           
@@ -253,7 +284,7 @@ export default function App() {
           <div className="flex items-center gap-2 bg-dark-800 rounded-lg px-3 py-1.5">
             <DollarSign size={14} className="text-accent-cyan" />
             <span className="font-mono text-sm text-white">
-              {formatCurrency(totalVolume)}M
+              {formatMillionsCurrency(totalVolume)}
             </span>
           </div>
         </div>
@@ -281,7 +312,7 @@ export default function App() {
               setChartData(Object.fromEntries(
                 Object.keys(MAG7_STOCKS).map(symbol => [
                   symbol,
-                  generateHistoricalData(symbol, 1)
+                  generateHistoricalData(symbol, TIMEFRAME_HOURS['1H'])
                 ])
               ));
             }}
