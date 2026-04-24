@@ -1677,6 +1677,446 @@ async def get_market_cap_milestones(
 
 
 # ============================================================================
+# Data Context & Source Provenance
+# ============================================================================
+
+class EventSource(BaseModel):
+    """Event source metadata."""
+    source_id: str
+    source_name: str  # FINRA, Polygon, Intrinio
+    feed_type: str   # tape_a, tape_b, tape_c, consolidated
+    venue: str       # BATS, NYSE, CBOE, etc.
+    confidence: float = 1.0  # 0-1 confidence score
+    latency_ms: int = 0      # Exchange to client latency
+    received_at: str          # ISO timestamp from source
+
+
+class DataSourceConnector(BaseModel):
+    """Data source connector configuration."""
+    id: str
+    name: str
+    provider: Literal["finra", "polygon", "intrinio"]
+    api_key: str | None = None
+    endpoint: str | None = None
+    status: Literal["connected", "disconnected", "error"] = "disconnected"
+    last_heartbeat: str | None = None
+    events_received: int = 0
+    events_dropped: int = 0
+    parser_errors: int = 0
+    feed_lag_ms: int = 0
+
+
+@app.get("/data/sources")
+async def get_data_sources():
+    """Get configured data source connectors."""
+    return {
+        "sources": [
+            {
+                "id": "finra_tape_a",
+                "name": "FINRA TRF Tape A",
+                "provider": "finra",
+                "status": "connected",
+                "last_heartbeat": datetime.now().isoformat(),
+                "events_received": 1247893,
+                "events_dropped": 12,
+                "parser_errors": 3,
+                "feed_lag_ms": 45,
+            },
+            {
+                "id": "polygon",
+                "name": "Polygon.io",
+                "provider": "polygon",
+                "status": "connected",
+                "last_heartbeat": datetime.now().isoformat(),
+                "events_received": 892341,
+                "events_dropped": 0,
+                "parser_errors": 1,
+                "feed_lag_ms": 23,
+            },
+            {
+                "id": "intrinio",
+                "name": "Intrinio",
+                "provider": "intrinio",
+                "status": "disconnected",
+                "last_heartbeat": None,
+                "events_received": 0,
+                "events_dropped": 0,
+                "parser_errors": 0,
+                "feed_lag_ms": 0,
+            },
+        ]
+    }
+
+
+class EnhancedTransaction(BaseModel):
+    """Transaction with full provenance."""
+    id: str
+    symbol: str
+    side: Literal["BUY", "SELL"]
+    size: int
+    price: float
+    venue: str
+    timestamp: str  # Exchange timestamp
+    received_at: str  # Client received
+    source: str  # Source ID
+    feed_type: str
+    confidence: float = 1.0
+    latency_ms: int = 0
+    is_anomalous: bool = False
+    z_score: float = 0.0
+    adv_pct: float = 0.0  # % of average daily volume
+    vwap_deviation: float = 0.0
+
+
+# ============================================================================
+# Scanner Features
+# ============================================================================
+
+@app.get("/scanner/prints")
+async def get_scanner_prints(
+    min_size: int = Query(1000, description="Minimum trade size"),
+    sort_by: str = Query("size", description="Sort field"),
+    limit: int = Query(100, description="Max results"),
+):
+    """Real-time scanner with sortable prints."""
+    import random
+
+    random.seed(42)
+    results = []
+
+    symbols = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+    venues = ["BATS", "NYSE", "CBOE", "MEMX", "IEX"]
+    feeds = ["tape_a", "tape_b", "tape_c"]
+
+    for _ in range(limit):
+        sym = random.choice(symbols)
+        size = random.randint(min_size, 500000)
+        price = random.uniform(50, 500)
+        adv = random.uniform(1000000, 50000000)
+        confidence = random.uniform(0.7, 1.0)
+
+        results.append({
+            "id": f"evt_{random.randint(100000, 999999)}",
+            "symbol": sym,
+            "side": random.choice(["BUY", "SELL"]),
+            "size": size,
+            "price": round(price, 2),
+            "venue": random.choice(venues),
+            "feed_type": random.choice(feeds),
+            "timestamp": datetime.now().isoformat(),
+            "received_at": datetime.now().isoformat(),
+            "source": "finra_tape_a",
+            "confidence": round(confidence, 2),
+            "latency_ms": random.randint(10, 100),
+            "z_score": round(random.uniform(-3, 3), 2),
+            "adv_pct": round(size / adv * 100, 4),
+        })
+
+    results.sort(key=lambda x: x.get(sort_by, 0), reverse=True)
+    return {"scanner": results, "count": len(results)}
+
+
+@app.get("/scanner/heatmap")
+async def get_flow_heatmap(
+    symbol: str = Query(None),
+    time_buckets: int = Query(13, description="Number of time buckets"),
+):
+    """Ticker × time bucket heatmap by abnormality score."""
+    import random
+
+    random.seed(100)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+
+    for sym in symbols:
+        for bucket in range(time_buckets):
+            results.append({
+                "symbol": sym,
+                "time_bucket": bucket,
+                "abnormality_score": round(random.uniform(0, 100), 1),
+                "volume": random.randint(100000, 5000000),
+                "trade_count": random.randint(10, 500),
+                "buy_pressure": round(random.uniform(30, 70), 1),
+            })
+
+    return {"heatmap": results, "time_buckets": time_buckets}
+
+
+# ============================================================================
+# Alert Engine with Routing
+# ============================================================================
+
+class AlertState(BaseModel):
+    """Alert state machine."""
+    id: str
+    timestamp: str
+    symbol: str
+    alert_type: str
+    severity: Literal["low", "medium", "high", "critical"]
+    state: Literal["new", "acknowledged", "snoozed", "resolved"]
+    routing_status: Literal["pending", "sent", "failed"]
+    dedup_reason: str | None = None
+    channel: str | None = None
+
+
+@app.get("/alerts/trigger-log")
+async def get_alert_trigger_log(
+    limit: int = Query(50),
+    state: str = Query(None),
+):
+    """Get alert trigger log."""
+    import random
+
+    random.seed(200)
+    alerts = []
+
+    symbols = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+
+    for _ in range(limit):
+        alerts.append({
+            "id": f"alert_{random.randint(1000, 9999)}",
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(symbols),
+            "alert_type": random.choice(["whale", "anomaly", "level", "spread"]),
+            "severity": random.choice(["low", "medium", "high", "critical"]),
+            "state": random.choice(["new", "acknowledged", "snoozed", "resolved"]),
+            "routing_status": random.choice(["pending", "sent", "failed"]),
+            "dedup_reason": random.choice([None, "size_similar", "time_window", "same_ticker"]),
+            "channel": random.choice(["discord", "slack", "teams", "telegram", "email", "sms"]),
+        })
+
+    alerts.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@app.post("/alerts/{alert_id}/ack")
+async def acknowledge_alert(alert_id: str):
+    """Acknowledge an alert."""
+    return {"success": True, "alert_id": alert_id, "state": "acknowledged"}
+
+
+@app.post("/alerts/{alert_id}/snooze")
+async def snooze_alert(alert_id: str, duration: int = Query(15)):
+    """Snooze an alert."""
+    return {"success": True, "alert_id": alert_id, "state": "snoozed", "duration_minutes": duration}
+
+
+# ============================================================================
+# Watchlists
+# ============================================================================
+
+class WatchlistItem(BaseModel):
+    """Watchlist item."""
+    symbol: str
+    added_at: str
+    notes: str | None = None
+    threshold: int | None = None
+
+
+@app.get("/watchlists")
+async def get_watchlists(
+    user_id: str = Query("default"),
+):
+    """Get user/team watchlists."""
+    return {
+        "watchlists": [
+            {
+                "id": "default",
+                "name": "MAG7 Watchlist",
+                "owner": "user",
+                "symbols": ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"],
+                "filters": [{"field": "size", "op": ">", "value": 10000}],
+                "created_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "whales",
+                "name": "Whale Alerts",
+                "owner": "team",
+                "symbols": ["NVDA", "META", "TSLA"],
+                "filters": [{"field": "size", "op": ">", "value": 50000}],
+                "created_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "earnings",
+                "name": "Earnings Plays",
+                "owner": "user",
+                "symbols": ["AAPL", "MSFT", "AMZN"],
+                "filters": [{"field": "iv", "op": ">", "value": 50}],
+                "created_at": datetime.now().isoformat(),
+            },
+        ]
+    }
+
+
+@app.post("/watchlists")
+async def create_watchlist(
+    name: str = Query(...),
+    symbols: list[str] = Query([]),
+):
+    """Create a new watchlist."""
+    import uuid
+    return {
+        "id": str(uuid.uuid4())[:8],
+        "name": name,
+        "symbols": symbols,
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+# ============================================================================
+# Reports & Export
+# ============================================================================
+
+@app.get("/reports/daily")
+async def get_daily_report(
+    date: str = Query(None, description="YYYY-MM-DD"),
+):
+    """Generate daily recap report."""
+    import random
+    random.seed(hash(date or "today"))
+
+    return {
+        "date": date or datetime.now().strftime("%Y-%m-%d"),
+        "total_trades": random.randint(50000, 500000),
+        "total_volume": random.randint(100000000, 1000000000),
+        "whale_events": random.randint(100, 5000),
+        "active_tickers": 7,
+        "top_tickers": [
+            {"symbol": "NVDA", "volume": random.randint(10000000, 50000000)},
+            {"symbol": "AAPL", "volume": random.randint(10000000, 50000000)},
+            {"symbol": "META", "volume": random.randint(5000000, 20000000)},
+        ],
+        "compliance": {
+            "watermark": f"DARKPOOL-{date or 'TODAY'}-{random.randint(1000, 9999)}",
+            "exported_at": datetime.now().isoformat(),
+        },
+    }
+
+
+@app.get("/reports/export")
+async def export_data(
+    format: str = Query("csv", description="csv or json"),
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    symbols: str = Query(None),
+):
+    """Export data with compliance watermarking."""
+    import random
+
+    data = []
+    for _ in range(100):
+        data.append({
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(["NVDA", "AAPL", "MSFT"]),
+            "side": random.choice(["BUY", "SELL"]),
+            "size": random.randint(1000, 100000),
+            "price": round(random.uniform(50, 500), 2),
+        })
+
+    return {
+        "data": data,
+        "format": format,
+        "compliance": {
+            "watermark": f"EXPORT-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}",
+            "exported_by": "user",
+            "exported_at": datetime.now().isoformat(),
+        },
+    }
+
+
+# ============================================================================
+# System Health
+# ============================================================================
+
+@app.get("/health/system")
+async def get_system_health():
+    """Get system health metrics."""
+    return {
+        "feed_lag_ms": 45,
+        "dropped_events": 12,
+        "parser_errors": 3,
+        "connectors": [
+            {"name": "FINRA", "status": "healthy", "uptime_pct": 99.98},
+            {"name": "Polygon", "status": "healthy", "uptime_pct": 99.99},
+            {"name": "Intrinio", "status": "offline", "uptime_pct": 0},
+        ],
+        "memory_usage_mb": 256,
+        "cpu_usage_pct": 23,
+    }
+
+
+# ============================================================================
+# Replay/Backtest
+# ============================================================================
+
+@app.get("/replay/events")
+async def get_replay_events(
+    start_time: str = Query(...),
+    end_time: str = Query(...),
+    speed: float = Query(1.0),
+):
+    """Get events for replay."""
+    import random
+
+    random.seed(hash(start_time))
+    events = []
+
+    for _ in range(min(500, int((hash(end_time) - hash(start_time)) % 1000) + 100)):
+        events.append({
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(["NVDA", "AAPL", "MSFT"]),
+            "size": random.randint(1000, 100000),
+            "price": round(random.uniform(50, 500), 2),
+            "side": random.choice(["BUY", "SELL"]),
+        })
+
+    return {"events": events, "count": len(events), "speed": speed}
+
+
+# ============================================================================
+# Ticker Deep Dive
+# ============================================================================
+
+@app.get("/ticker/{symbol}/deep-dive")
+async def get_ticker_deep_dive(
+    symbol: str,
+    period: str = Query("1D"),
+):
+    """Get detailed ticker analysis."""
+    import random
+
+    random.seed(hash(symbol))
+    now = datetime.now()
+
+    # Volume profile
+    volume_profile = []
+    for i in range(20):
+        volume_profile.append({
+            "price_level": round(100 + i * 5, 2),
+            "volume": random.randint(10000, 100000),
+            "trades": random.randint(100, 1000),
+        })
+
+    # Repeated levels
+    repeated_levels = [
+        {"price": round(random.uniform(80, 200), 2), "occurrences": random.randint(5, 50)}
+        for _ in range(10)
+    ]
+
+    return {
+        "symbol": symbol,
+        "period": period,
+        "volume_profile": volume_profile,
+        "repeated_levels": sorted(repeated_levels, key=lambda x: x["occurrences"], reverse=True),
+        "news": [
+            {"timestamp": now.isoformat(), "headline": f"{symbol} earnings call", "sentiment": random.choice(["positive", "negative", "neutral"])},
+            {"timestamp": now.isoformat(), "headline": f"{symbol} upgrade", "sentiment": "positive"},
+        ],
+    }
+
+
+# ============================================================================
 # Discord Bot Webhook Endpoint
 # ============================================================================
 

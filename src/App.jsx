@@ -20,6 +20,7 @@ import {
 import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
 import SettingsModal from './SettingsModal';
 import OptionsDashboard from './OptionsDashboard';
+import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
@@ -194,7 +195,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState('ALL');
-  const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard', 'options', 'alerts'
+  const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard', 'options', 'scanner', 'alerts', 'ticker', 'replay', 'watchlist', 'reports', 'admin', 'health'
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
@@ -367,7 +368,7 @@ export default function App() {
 
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
-            {['dashboard', 'options', 'alerts'].map((mode) => (
+            {['dashboard', 'scanner', 'alerts', 'watchlist', 'health'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -547,6 +548,14 @@ export default function App() {
       {/* Main Content Based on View Mode */}
       {viewMode === 'options' ? (
         <OptionsDashboard settings={settings} />
+      ) : viewMode === 'scanner' ? (
+        <ScannerView />
+      ) : viewMode === 'alerts' ? (
+        <AlertsView />
+      ) : viewMode === 'watchlist' ? (
+        <WatchlistView />
+      ) : viewMode === 'health' ? (
+        <HealthView />
       ) : (
         <>
           {/* Dashboard Controls - Only show for dashboard view */}

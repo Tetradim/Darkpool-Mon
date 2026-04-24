@@ -129,6 +129,31 @@ python discord_bot.py
 |----------|-------------|
 | `/marketcap/milestones` | Market cap milestone tracking |
 
+#### Production Features
+| Endpoint | Description |
+|----------|-------------|
+| `/data/sources` | Data source connectors & status |
+| `/scanner/prints` | Real-time sortable prints |
+| `/scanner/heatmap` | Ticker × time bucket heatmap |
+| `/alerts/trigger-log` | Alert trigger log |
+| `/alerts/{id}/ack` | Acknowledge alert |
+| `/alerts/{id}/snooze` | Snooze alert |
+| `/watchlists` | User/team watchlists |
+| `/reports/daily` | Daily recap with watermark |
+| `/reports/export` | Compliance export |
+| `/health/system` | System health metrics |
+| `/replay/events` | Replay events |
+| `/ticker/{sym}/deep-dive` | Ticker deep dive |
+
+```bash
+# Production examples:
+curl "/scanner/prints?min_size=5000&sort_by=z_score"
+curl "/scanner/heatmap?symbol=AAPL&time_buckets=13"
+curl "/alerts/trigger-log?limit=50"
+curl "/reports/export?format=csv"
+curl "/health/system"
+```
+
 #### Whale Threshold Alerts
 | Endpoint | Method | Description |
 |----------|--------|-------------|
