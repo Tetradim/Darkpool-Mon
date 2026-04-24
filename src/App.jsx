@@ -57,10 +57,10 @@ const computeZScore = (values, nextValue) => {
   return (nextValue - mean) / stdDev;
 };
 
-const StockCard = ({ stock, data, isActive, onClick }) => {
+const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
   const latestData = data[data.length - 1] || { buyVolume: 0, sellVolume: 0 };
   const totalVolume = latestData.totalVolume || 0;
-  const intensity = Math.min(totalVolume / 25, 1);
+  const intensity = Math.min(totalVolume / threshold, 1);
 
   const priceChange = data.length > 1
     ? ((data[data.length - 1].price - data[0].price) / data[0].price * 100)
@@ -106,7 +106,7 @@ const StockCard = ({ stock, data, isActive, onClick }) => {
               ${stock.basePrice.toFixed(2)}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              Vol: {formatVolume(totalVolume)}
+              Vol: {formatVolume(totalVolume)} @ {threshold}K
             </p>
           </div>
 
@@ -193,6 +193,7 @@ export default function App() {
   const [selectedStock, setSelectedStock] = useState('ALL');
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
+  const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
   const [feedSort, setFeedSort] = useState('LATEST');
   const [chartData, setChartData] = useState({});
   const [stockPrices, setStockPrices] = useState(MAG7_STOCKS);
@@ -207,6 +208,7 @@ export default function App() {
       setSelectedStock(settings.selectedStock || 'ALL');
       setTimeframe(settings.timeframe || '1H');
       setThreshold(settings.threshold || 1);
+      setWhaleThreshold(settings.whaleThreshold || 50);
       setFeedSort(settings.feedSort || 'LATEST');
       setIsRunning(typeof settings.isRunning === 'boolean' ? settings.isRunning : true);
     }
@@ -215,9 +217,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ selectedStock, timeframe, threshold, feedSort, isRunning })
+      JSON.stringify({ selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning })
     );
-  }, [selectedStock, timeframe, threshold, feedSort, isRunning]);
+  }, [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
 
   useEffect(() => {
     const initialData = {};
@@ -245,7 +247,7 @@ export default function App() {
       setTransactions((prev) => {
         const symbolSizes = prev.filter((txn) => txn.symbol === transaction.symbol).slice(0, 25).map((txn) => txn.size);
         const zScore = computeZScore(symbolSizes, transaction.size);
-        const isWhale = transaction.size >= 25;
+        const isWhale = transaction.size >= whaleThreshold * 1000; // Convert to actual shares
 
         if (isWhale || zScore >= 2.2) {
           const reason = isWhale ? `Whale print ${transaction.size.toFixed(2)}M` : `Unusual size z-score ${zScore.toFixed(2)}`;
@@ -313,7 +315,7 @@ export default function App() {
   const buyVolume = transactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.size, 0);
   const sellVolume = transactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.size, 0);
   const avgTradeSize = transactions.length ? totalVolume / transactions.length : 0;
-  const whaleTrades = transactions.filter((transaction) => transaction.size >= 25).length;
+  const whaleTrades = transactions.filter((transaction) => transaction.size >= whaleThreshold * 1000).length;
   const buyRatio = totalVolume > 0 ? (buyVolume / totalVolume * 100).toFixed(1) : 50;
 
   const mainChartData = selectedStock === 'ALL'
@@ -433,6 +435,20 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Whale:</span>
+          <input
+            type="range"
+            min="10"
+            max="200"
+            step="10"
+            value={whaleThreshold}
+            onChange={(event) => setWhaleThreshold(Number(event.target.value))}
+            className="w-24 accent-accent-yellow"
+          />
+          <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
+        </div>
+
+        <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Min:</span>
           <input
             type="range"
@@ -475,6 +491,7 @@ export default function App() {
             data={chartData[stock.symbol] || []}
             isActive={selectedStock === stock.symbol}
             onClick={() => setSelectedStock(stock.symbol)}
+            threshold={whaleThreshold}
           />
         ))}
       </div>
