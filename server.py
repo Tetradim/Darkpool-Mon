@@ -624,8 +624,10 @@ async def get_combined_chart(
             "plot_bgcolor": "#1a1a2e",
             "font": {"color": "#ffffff"},
             "showlegend": True,
-        ],
+        },
     }
+
+    return fig
 
 
 # ============================================================================
@@ -1104,7 +1106,7 @@ async def get_volume_profile(
     for i in range(bins):
         bin_low = mid - 10 + (i * (20 / bins))
         bin_high = bin_low + (20 / bins)
-        vol = int(100000 * (1 + 2 * (1 - abs(i - bins/2) / (bins/1))) + random.randint(-10000, 10000)
+        vol = int(100000 * (1 + 2 * (1 - abs(i - bins/2) / (bins/1))) + random.randint(-10000, 10000))
         profile.append({
             "bin": i + 1,
             "price_low": round(bin_low, 2),
@@ -1513,7 +1515,7 @@ async def get_high_vol_leaps(
                     "volume": vol,
                     "open_interest": int(vol * random.uniform(2, 5)),
                     "iv": round(random.uniform(25, 45), 1),
-                }))
+                })
 
     results = [r for r in results if r["expiration_months"] >= min_months]
     results.sort(key=lambda x: x["volume"], reverse=True)
@@ -1604,7 +1606,7 @@ async def get_large_otm_oi(
                     "bid": round(random.uniform(0.1, 3), 2),
                     "ask": round(random.uniform(0.2, 4), 2),
                     "iv": round(random.uniform(25, 65), 1),
-                }))
+                })
 
     results = [r for r in results if r["open_interest"] >= min_oi]
     results.sort(key=lambda x: x["open_interest"], reverse=True)
@@ -1690,8 +1692,8 @@ class AlertWebhook(BaseModel):
 
 @app.post("/alerts/webhook")
 async def send_alertWebhook(
-    webhook_url: str = Query(..., description="Discord webhook URL"),
     alert: AlertWebhook,
+    webhook_url: str = Query(..., description="Discord webhook URL"),
 ):
     """Send an alert to Discord webhook."""
     import httpx

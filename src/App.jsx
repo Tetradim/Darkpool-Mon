@@ -19,6 +19,7 @@ import {
 } from './dataGenerator';
 import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
 import SettingsModal from './SettingsModal';
+import OptionsDashboard from './OptionsDashboard';
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
@@ -193,6 +194,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState('ALL');
+  const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard', 'options', 'alerts'
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
@@ -363,6 +365,27 @@ export default function App() {
             <span className="font-mono text-sm">{currentTime.toLocaleTimeString()}</span>
           </div>
 
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
+            {['dashboard', 'options', 'alerts'].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                  viewMode === mode
+                    ? 'bg-dark-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+                style={{
+                  backgroundColor: viewMode === mode ? 'var(--color-card)' : undefined,
+                  color: viewMode === mode ? 'var(--color-accent)' : undefined,
+                }}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
             <span className="text-xs text-gray-400">LIVE</span>
@@ -521,21 +544,115 @@ export default function App() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
-        {Object.values(MAG7_STOCKS).map((stock) => (
-          <StockCard
-            key={stock.symbol}
-            stock={stockPrices[stock.symbol] || stock}
-            data={chartData[stock.symbol] || []}
-            isActive={selectedStock === stock.symbol}
-            onClick={() => setSelectedStock(stock.symbol)}
-            threshold={whaleThreshold}
-          />
-        ))}
-      </div>
+      {/* Main Content Based on View Mode */}
+      {viewMode === 'options' ? (
+        <OptionsDashboard settings={settings} />
+      ) : (
+        <>
+          {/* Dashboard Controls - Only show for dashboard view */}
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedStock}
+                onChange={(e) => setSelectedStock(e.target.value)}
+                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                <option value="ALL">ALL STOCKS</option>
+                {Object.values(MAG7_STOCKS).map((stock) => (
+                  <option key={stock.symbol} value={stock.symbol}>
+                    {stock.symbol} - {stock.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-dark-800 rounded-xl p-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Whale:</span>
+              <input
+                type="range"
+                min="10"
+                max="200"
+                step="10"
+                value={whaleThreshold}
+                onChange={(event) => setWhaleThreshold(Number(event.target.value))}
+                className="w-24 accent-accent-yellow"
+                style={{ accentColor: 'var(--color-accent-yellow)' }}
+              />
+              <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
+            </div>
+
+            {/* Greeks Display */}
+            <div className="flex items-center gap-1 ml-2">
+              {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
+                <label
+                  key={name}
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
+                  title={name}
+                >
+                  <input type="checkbox" className="sr-only" />
+                  <span 
+                    className="font-bold text-sm"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    {symbol}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Min:</span>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={threshold}
+                onChange={(event) => setThreshold(Number(event.target.value))}
+                className="w-24 accent-accent-cyan"
+              />
+              <span className="font-mono text-sm text-accent-cyan">${threshold}M</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={feedSort}
+                onChange={(event) => setFeedSort(event.target.value)}
+                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
+              >
+                <option value="LATEST">Latest first</option>
+                <option value="LARGEST">Largest first</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => exportTransactionsToCsv(filteredTransactions)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-dark-800 text-gray-300 hover:text-white transition-all"
+                title="Export filtered feed"
+              >
+                <Download size={14} />
+                Export CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Stock Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
+            {Object.values(MAG7_STOCKS).map((stock) => (
+              <StockCard
+                key={stock.symbol}
+                stock={stockPrices[stock.symbol] || stock}
+                data={chartData[stock.symbol] || []}
+                isActive={selectedStock === stock.symbol}
+                onClick={() => setSelectedStock(stock.symbol)}
+                threshold={whaleThreshold}
+              />
+            ))}
+          </div>
+
+          {/* Charts & Feed */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-dark-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <BarChart3 size={20} className="text-accent-cyan" />
@@ -709,8 +826,8 @@ export default function App() {
             )}
           </div>
         </div>
-      </div>
-      
+      )}
+
       <SettingsModal
         isOpen={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
