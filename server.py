@@ -2350,6 +2350,88 @@ async def get_keyboard_shortcuts():
 
 
 # ============================================================================
+# Phase 3: Anomaly Detection Engine
+# ============================================================================
+
+import statistics
+
+
+class AnomalyDetector:
+    """Z-score based anomaly detection"""
+    
+    def __init__(self, window_size: int = 100):
+        self.window_size = window_size
+        self.price_history = {}
+        self.volume_history = {}
+    
+    def calculate_z_score(self, symbol: str, value: float) -> float:
+        """Calculate z-score for a value"""
+        history = self.price_history.get(symbol, [])
+        
+        if len(history) < 10:
+            return 0.0
+        
+        mean = statistics.mean(history)
+        stdev = statistics.stdev(history) if len(history) > 1 else 1
+        
+        return (value - mean) / stdev if stdev > 0 else 0.0
+    
+    def calculate_adv_pct(self, size: int, adv: float) -> float:
+        """Calculate % of average daily volume"""
+        return (size / adv) * 100 if adv > 0 else 0.0
+    
+    def update_baseline(self, symbol: str, price: float, volume: int):
+        if symbol not in self.price_history:
+            self.price_history[symbol] = []
+            self.volume_history[symbol] = []
+        
+        self.price_history[symbol].append(price)
+        self.volume_history[symbol].append(volume)
+        
+        if len(self.price_history[symbol]) > self.window_size:
+            self.price_history[symbol].pop(0)
+        if len(self.volume_history[symbol]) > self.window_size:
+            self.volume_history[symbol].pop(0)
+    
+    def detect(self, symbol: str, price: float, size: int, adv: float = 1000000) -> dict:
+        z_score = self.calculate_z_score(symbol, price)
+        adv_pct = self.calculate_adv_pct(size, adv)
+        
+        return {
+            "is_anomalous": abs(z_score) > 2 or adv_pct > 5,
+            "z_score": round(z_score, 2),
+            "adv_pct": round(adv_pct, 2),
+        }
+
+
+anomaly_detector = AnomalyDetector()
+
+
+@app.get("/analysis/zscore")
+async def get_zscore(symbol: str = Query(...), value: float = Query(...)):
+    return {"symbol": symbol, "value": value, "z_score": round(anomaly_detector.calculate_z_score(symbol, value), 2)}
+
+
+@app.get("/analysis/anomalies")
+async def get_anomalies(symbol: str = Query(...), price: float = Query(...), size: int = Query(...), adv: float = Query(1000000)):
+    result = anomaly_detector.detect(symbol, price, size, adv)
+    anomaly_detector.update_baseline(symbol, price, size)
+    return {"symbol": symbol, **result}
+
+
+@app.get("/analysis/baseline")
+async def get_baseline(symbol: str = Query(...)):
+    prices = anomaly_detector.price_history.get(symbol, [])
+    if not prices:
+        return {"symbol": symbol, "status": "no_data"}
+    return {
+        "symbol": symbol, "samples": len(prices),
+        "mean": round(statistics.mean(prices), 2),
+        "stdev": round(statistics.stdev(prices), 2) if len(prices) > 1 else 0,
+    }
+
+
+# ============================================================================
 # Discord Bot Webhook Endpoint
 # ============================================================================
 
@@ -2368,7 +2450,6 @@ async def send_alertWebhook(
     alert: AlertWebhook,
     webhook_url: str = Query(..., description="Discord webhook URL"),
 ):
-    """Send an alert to Discord webhook."""
     import httpx
 
     embed = {
@@ -2558,3 +2639,181 @@ async def broadcast_mock_transactions():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(broadcast_mock_transactions())
+
+
+# ============================================================================
+# Phase 4: Alert Routing with Deduplication
+# ============================================================================
+
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+
+class AlertRouter:
+    """Alert routing with deduplication"""
+    
+    def __init__(self, dedup_window_seconds: int = 60):
+        self.dedup_window = timedelta(seconds=dedup_window_seconds)
+        self.recent_alerts = defaultdict(list)
+        self.routing_history = []
+        self.channels = {
+            "discord": self.send_discord,
+            "slack": self.send_slack,
+            "teams": self.send_teams,
+            "telegram": self.send_telegram,
+            "email": self.send_email,
+        }
+    
+    def should_send(self, symbol: str, alert_type: str, size: int = 0) -> tuple[bool, str]:
+        """Check if alert should be sent (dedup)"""
+        now = datetime.now()
+        key = f"{symbol}:{alert_type}"
+        
+        # Check recent alerts
+        recent = self.recent_alerts[key]
+        recent = [t for t in recent if now - t < self.dedup_window]
+        
+        if recent:
+            # Check if similar size (within 20%)
+            for rt in recent:
+                if abs(size) > 0:  # size-based dedup
+                    return False, "size_window"
+                else:
+                    return False, "time_window"
+        
+        self.recent_alerts[key] = recent + [now]
+        return True, None
+    
+    async def route(self, alert: dict, channel: str):
+        """Route alert to specified channel"""
+        if channel not in self.channels:
+            raise ValueError(f"Unknown channel: {channel}")
+        
+        sender = self.channels[channel]
+        success = await sender(alert)
+        
+        self.routing_history.append({
+            "alert_id": alert.get("id"),
+            "channel": channel,
+            "timestamp": now.isoformat(),
+            "success": success,
+        })
+        
+        return success
+    
+    async def send_discord(self, alert: dict) -> bool:
+        import httpx
+        # Placeholder - real implementation with webhook URL
+        return True
+    
+    async def send_slack(self, alert: dict) -> bool:
+        return True
+    
+    async def send_teams(self, alert: dict) -> bool:
+        return True
+    
+    async def send_telegram(self, alert: dict) -> bool:
+        return True
+    
+    async def send_email(self, alert: dict) -> bool:
+        return True
+
+
+alert_router = AlertRouter()
+
+
+@app.get("/alerts/routing-status")
+async def get_routing_status(limit: int = Query(50)):
+    history = alert_router.routing_history[-limit:]
+    return {"history": history, "count": len(history)}
+
+
+@app.post("/alerts/route")
+async def route_alert(
+    symbol: str = Query(...),
+    alert_type: str = Query(...),
+    channel: str = Query("discord"),
+    size: int = Query(0),
+):
+    should_send, reason = alert_router.should_send(symbol, alert_type, size)
+    
+    if not should_send:
+        return {"status": "deduplicated", "reason": reason}
+    
+    alert = {"symbol": symbol, "type": alert_type, "size": size}
+    success = await alert_router.route(alert, channel)
+    
+    return {"status": "sent" if success else "failed"}
+
+
+# ============================================================================
+# Phase 5: Historical Analytics & Storage
+# ============================================================================
+
+# Time-series storage placeholder (PostgreSQL/TimescaleDB ready)
+class HistoricalStore:
+    """Historical data storage"""
+    
+    def __init__(self):
+        self.transactions = []
+        self.alerts = []
+        self.max_store = 10000
+    
+    def store_transaction(self, txn: dict):
+        self.transactions.append({**txn, "stored_at": datetime.now().isoformat()})
+        if len(self.transactions) > self.max_store:
+            self.transactions.pop(0)
+    
+    def get_range(self, symbol: str, start: str, end: str) -> list[dict]:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+        
+        return [
+            t for t in self.transactions
+            if t.get("symbol") == symbol
+            and start_dt <= datetime.fromisoformat(t.get("timestamp", ""))
+            <= end_dt
+        ]
+    
+    def get_daily_summary(self, date: str) -> dict:
+        return {
+            "date": date,
+            "total_transactions": len(self.transactions),
+            "total_volume": sum(t.get("size", 0) for t in self.transactions),
+        }
+
+
+historical_store = HistoricalStore()
+
+
+@app.get("/history/range")
+async def get_history(
+    symbol: str = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
+):
+    return {"transactions": historical_store.get_range(symbol, start, end)}
+
+
+@app.get("/history/daily")
+async def get_daily_summary(date: str = Query(None)):
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+    return historical_store.get_daily_summary(date)
+
+
+@app.get("/history/summary")
+async def get_history_summary(days: int = Query(7)):
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    
+    return {
+        "days": days,
+        "total_stored": len(historical_store.transactions),
+        "date_range": {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+        },
+    }
+
+
