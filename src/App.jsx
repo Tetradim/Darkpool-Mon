@@ -21,6 +21,7 @@ import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS
 import SettingsModal from './SettingsModal';
 import OptionsDashboard from './OptionsDashboard';
 import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
+import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
@@ -195,7 +196,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState('ALL');
-  const [viewMode, setViewMode] = useState('dashboard'); // 'dashboard', 'options', 'scanner', 'alerts', 'ticker', 'replay', 'watchlist', 'reports', 'admin', 'health'
+  const [viewMode, setViewMode] = useState('dashboard'); // dashboard, scanner, flowmap, alerts, watchlist, replay, admin, health
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
@@ -368,7 +369,7 @@ export default function App() {
 
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
-            {['dashboard', 'scanner', 'alerts', 'watchlist', 'health'].map((mode) => (
+            {['dashboard', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -556,6 +557,12 @@ export default function App() {
         <WatchlistView />
       ) : viewMode === 'health' ? (
         <HealthView />
+      ) : viewMode === 'flowmap' ? (
+        <FlowMapView />
+      ) : viewMode === 'replay' ? (
+        <ReplayView />
+      ) : viewMode === 'admin' ? (
+        <AdminView />
       ) : (
         <>
           {/* Dashboard Controls - Only show for dashboard view */}

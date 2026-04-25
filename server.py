@@ -2117,6 +2117,239 @@ async def get_ticker_deep_dive(
 
 
 # ============================================================================
+# Advanced Visualizations
+# ============================================================================
+
+@app.get("/chart/heatmap")
+async def get_chart_heatmap(
+    symbols: str = Query(None),
+    buckets: int = Query(13),
+):
+    """Flow Map heatmap data for visualization."""
+    import random
+
+    random.seed(300)
+    results = []
+
+    syms = symbols.split(',') if symbols else list(MAG7_STOCKS.keys())
+
+    for sym in syms:
+        base = MAG7_STOCKS.get(sym.strip(), {"basePrice": 100})
+        for bucket in range(buckets):
+            score = random.uniform(0, 100)
+            results.append({
+                "symbol": sym,
+                "bucket": bucket,
+                "score": round(score, 1),
+                "volume": random.randint(100000, 5000000),
+                "trades": random.randint(10, 500),
+                "buy_pressure": round(random.uniform(30, 70), 1),
+                "color": f"hsl({int(120 - score * 1.2)}, 70%, 50%)",
+            })
+
+    return {"heatmap": results, "buckets": buckets}
+
+
+@app.get("/chart/candlestick")
+async def get_candlestick_data(
+    symbol: str = Query(...),
+    period: str = Query("1D"),
+    interval: str = Query("5m"),
+):
+    """Candlestick OHLC data."""
+    import random
+
+    random.seed(hash(symbol + period + interval))
+    base = MAG7_STOCKS.get(symbol, {"basePrice": 100})
+    price = base.get("basePrice", 100)
+
+    candles = []
+    for i in range(78):  # 5-min intervals in 6.5hr session
+        open_price = price * (1 + random.uniform(-0.02, 0.02))
+        high = open_price * (1 + random.uniform(0, 0.03))
+        low = open_price * (1 - random.uniform(0, 0.03))
+        close = open_price * (1 + random.uniform(-0.02, 0.02))
+        volume = random.randint(10000, 100000)
+
+        candles.append({
+            "time": i * 5,
+            "open": round(open_price, 2),
+            "high": round(high, 2),
+            "low": round(low, 2),
+            "close": round(close, 2),
+            "volume": volume,
+        })
+        price = close
+
+    return {"symbol": symbol, "period": period, "interval": interval, "candles": candles}
+
+
+@app.get("/chart/volume-profile")
+async def get_volume_profile(
+    symbol: str = Query(...),
+    bins: int = Query(20),
+):
+    """Volume profile by price level."""
+    import random
+
+    random.seed(hash(symbol))
+    base = MAG7_STOCKS.get(symbol, {"basePrice": 100})
+    price = base.get("basePrice", 100)
+
+    profile = []
+    for i in range(bins):
+        bin_price = price * (0.9 + i * 0.02)
+        profile.append({
+            "price": round(bin_price, 2),
+            "volume": random.randint(10000, 100000),
+            "trades": random.randint(100, 1000),
+            "pip": "green" if random.random() > 0.5 else "red",
+        })
+
+    profile.sort(key=lambda x: x["volume"], reverse=True)
+    return {"symbol": symbol, "profile": profile}
+
+
+# ============================================================================
+# API Key Management
+# ============================================================================
+
+class APIKey(BaseModel):
+    """API key configuration."""
+    id: str
+    provider: str
+    key_masked: str
+    status: str
+    created_at: str
+    last_used: str | None = None
+
+
+@app.get("/admin/api-keys")
+async def get_api_keys():
+    """List API keys."""
+    return {
+        "keys": [
+            {"id": "polygon_1", "provider": "polygon", "key_masked": "pol_****1234", "status": "active", "created_at": "2024-01-15T10:00:00Z", "last_used": "2024-01-20T14:30:00Z"},
+            {"id": "intrinio_1", "provider": "intrinio", "key_masked": "int_****5678", "status": "inactive", "created_at": "2024-01-10T09:00:00Z", "last_used": None},
+        ]
+    }
+
+
+@app.post("/admin/api-keys")
+async def create_api_key(
+    provider: str = Query(...),
+    api_key: str = Query(...),
+):
+    """Create new API key."""
+    import uuid
+    return {"id": str(uuid.uuid4())[:8], "provider": provider, "key_masked": f"{provider[:3]}_****{api_key[-4:]}", "status": "active", "created_at": datetime.now().isoformat()}
+
+
+@app.delete("/admin/api-keys/{key_id}")
+async def delete_api_key(key_id: str):
+    """Delete API key."""
+    return {"success": True, "key_id": key_id}
+
+
+# ============================================================================
+# Compliance & Audit
+# ============================================================================
+
+class AuditLog(BaseModel):
+    """Audit log entry."""
+    id: str
+    timestamp: str
+    user: str
+    action: str
+    details: str
+    ip_address: str
+
+
+class RetentionPolicy(BaseModel):
+    """Data retention policy."""
+    id: str
+    name: str
+    duration_days: int
+    auto_delete: bool
+
+
+@app.get("/admin/audit-log")
+async def get_audit_log(
+    limit: int = Query(50),
+):
+    """Get audit log."""
+    import random
+
+    random.seed(400)
+    actions = ["login", "export", "view_ticker", "create_alert", "update_settings", "create_watchlist"]
+
+    logs = []
+    for _ in range(limit):
+        logs.append({
+            "id": f"audit_{random.randint(1000, 9999)}",
+            "timestamp": datetime.now().isoformat(),
+            "user": random.choice(["user", "admin", "analyst"]),
+            "action": random.choice(actions),
+            "details": f"Action details for audit",
+            "ip_address": f"192.168.1.{random.randint(1, 254)}",
+        })
+
+    logs.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"logs": logs, "count": len(logs)}
+
+
+@app.get("/admin/retention")
+async def get_retention_policies():
+    """Get retention policies."""
+    return {
+        "policies": [
+            {"id": "r1", "name": "Raw Trades", "duration_days": 30, "auto_delete": True},
+            {"id": "r2", "name": "Alerts", "duration_days": 90, "auto_delete": True},
+            {"id": "r3", "name": "Export History", "duration_days": 365, "auto_delete": False},
+        ]
+    }
+
+
+@app.post("/admin/retention")
+async def create_retention_policy(
+    name: str = Query(...),
+    duration_days: int = Query(30),
+    auto_delete: bool = Query(True),
+):
+    """Create retention policy."""
+    import uuid
+    return {"id": str(uuid.uuid4())[:8], "name": name, "duration_days": duration_days, "auto_delete": auto_delete}
+
+
+# ============================================================================
+# Keyboard Shortcuts Config
+# ============================================================================
+
+class KeyboardShortcut(BaseModel):
+    """Keyboard shortcut."""
+    key: str
+    modifiers: list[str]
+    action: str
+    description: str
+
+
+@app.get("/config/shortcuts")
+async def get_keyboard_shortcuts():
+    """Get keyboard shortcuts."""
+    return {
+        "shortcuts": [
+            {"key": "f", "modifiers": [], "action": "focus_search", "description": "Focus search"},
+            {"key": "s", "modifiers": ["ctrl"], "action": "save_filter", "description": "Save current filter"},
+            {"key": "e", "modifiers": ["ctrl"], "action": "export", "description": "Export data"},
+            {"key": "1-7", "modifiers": [], "action": "switch_ticker", "description": "Switch to ticker 1-7"},
+            {"key": "space", "modifiers": [], "action": "toggle_pause", "description": "Pause/resume feed"},
+            {"key": "/", "modifiers": [], "action": "command_palette", "description": "Open command palette"},
+            {"key": "esc", "modifiers": [], "action": "close_modal", "description": "Close modal"},
+        ]
+    }
+
+
+# ============================================================================
 # Discord Bot Webhook Endpoint
 # ============================================================================
 
