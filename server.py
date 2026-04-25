@@ -3,13 +3,15 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Literal
+import secrets
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Literal, Optional
 from enum import Enum
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
 load_dotenv()
@@ -20,8 +22,130 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Darkpool Monitor API",
     description="Backend for real-time darkpool monitoring with FINRA OTC data",
-    version="1.0.0",
+    version="2.0.0",
 )
+
+# ============================================================================
+# Authentication & Security
+# ============================================================================
+
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+
+users_db: dict = {}
+api_keys_db: dict = {}
+sessions_db: dict = {}
+
+
+class User(BaseModel):
+    id: str
+    username: str
+    email: EmailStr
+    hashed_password: str
+    is_active: bool = True
+    is_admin: bool = False
+    created_at: str = ""
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class APIKeyCreate(BaseModel):
+    name: str
+    provider: str
+    key_value: str
+
+
+def hash_password(password: str) -> str:
+    salt = SECRET_KEY[:16].encode()
+    return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000).hex()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
+
+
+def create_access_token(data: dict) -> str:
+    import jwt
+    to_encode = data.copy()
+    expire = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire.isoformat()})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[dict]:
+    import jwt
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception:
+        return None
+
+
+@app.post("/auth/register")
+async def register(username: str = Query(...), password: str = Query(...), email: EmailStr = Query(...)):
+    if username in users_db:
+        raise HTTPException(400, "Username already exists")
+    
+    user_id = secrets.token_urlsafe(8)
+    user = User(
+        id=user_id,
+        username=username,
+        email=email,
+        hashed_password=hash_password(password),
+        created_at=datetime.now().isoformat(),
+    )
+    users_db[username] = user.model_dump()
+    return {"user_id": user_id, "username": username}
+
+
+@app.post("/auth/token")
+async def login(username: str = Query(...), password: str = Query(...)):
+    user = users_db.get(username)
+    
+    if not user or not verify_password(password, user["hashed_password"]):
+        raise HTTPException(401, "Invalid credentials")
+    
+    if not user["is_active"]:
+        raise HTTPException(403, "User inactive")
+    
+    token = create_access_token({"sub": username, "user_id": user["id"]})
+    sessions_db[token] = {"username": username, "created_at": datetime.now().isoformat()}
+    return Token(access_token=token, token_type="bearer")
+
+
+@app.post("/auth/api-keys")
+async def create_api_key(key: APIKeyCreate, token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    
+    key_id = secrets.token_urlsafe(12)
+    masked = f"{key.key_value[:4]}...{key.key_value[-4:]}"
+    
+    api_keys_db[key_id] = {
+        "id": key_id,
+        "name": key.name,
+        "provider": key.provider,
+        "key_masked": masked,
+        "status": "active",
+        "user_id": user_data.get("user_id"),
+        "created_at": datetime.now().isoformat(),
+    }
+    return {"key_id": key_id, "masked": masked}
+
+
+@app.get("/auth/api-keys")
+async def list_api_keys(token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    
+    user_keys = [k for k in api_keys_db.values() if k.get("user_id") == user_data.get("user_id")]
+    return {"keys": user_keys}
+
 
 # ============================================================================
 # Circuit Breaker with Exponential Backoff
@@ -2816,4 +2940,199 @@ async def get_history_summary(days: int = Query(7)):
         },
     }
 
+
+
+# ============================================================================
+# Ingestion Service: TRF/ATS Normalization
+# ============================================================================
+
+class PrintNormalizer:
+    ATS_EXCHANGES = {"A": "BATS", "J": "CBOE", "K": "MEMX", "Y": "IEX", "Z": "NASDAQ"}
+    TRF_CODES = {"F": "FINRA/NASDAQ TRF", "X": "FINRA/NYSE TRF", "C": "CBOE TRF", "B": "BATS TRF"}
+    
+    def __init__(self):
+        self.stats = {"ats": 0, "trf": 0, "exchange": 0}
+    
+    def normalize(self, raw_print: dict) -> dict:
+        exchange = raw_print.get("exchange", "")
+        market = raw_print.get("market", "")
+        
+        if exchange in self.ATS_EXCHANGES:
+            feed_type, venue = "ats", self.ATS_EXCHANGES.get(exchange, exchange)
+            self.stats["ats"] += 1
+        elif exchange in self.TRF_CODES or market == "TRF":
+            feed_type, venue = "trf", self.TRF_CODES.get(exchange, "TRF")
+            self.stats["trf"] += 1
+        else:
+            feed_type, venue = "exchange", exchange or market or "UNKNOWN"
+            self.stats["exchange"] += 1
+        
+        size, price = raw_print.get("size", 0), raw_print.get("price", 0)
+        notional = size * price
+        
+        return {**raw_print, "feed_type": feed_type, "venue": venue,
+            "notional": round(notional, 2), "is_whale": size >= 50000 or notional >= 1000000,
+            "is_block": size >= 10000, "normalized_at": datetime.now().isoformat()}
+    
+    def get_stats(self) -> dict:
+        return {**self.stats, "total": sum(self.stats.values())}
+
+
+normalizer = PrintNormalizer()
+
+@app.get("/normalize/stats")
+async def get_normalizer_stats():
+    return normalizer.get_stats()
+
+
+# ============================================================================
+# Database Schema (TimescaleDB Ready)
+# ============================================================================
+
+@app.get("/schema/database")
+async def get_database_schema():
+    return {"schema": """
+CREATE TABLE darkpool_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    symbol VARCHAR(10) NOT NULL, side VARCHAR(4) NOT NULL,
+    size INTEGER NOT NULL, price DECIMAL(10,2) NOT NULL,
+    venue VARCHAR(50), feed_type VARCHAR(10), source VARCHAR(20),
+    notional DECIMAL(15,2), is_whale BOOLEAN DEFAULT FALSE,
+    is_block BOOLEAN DEFAULT FALSE, metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+SELECT create_hypertable('darkpool_transactions', 'created_at');
+CREATE INDEX idx_symbol ON darkpool_transactions (symbol, created_at DESC);
+CREATE TABLE darkpool_minutes (
+    time_bucket TIMESTAMPTZ NOT NULL, symbol VARCHAR(10) NOT NULL,
+    buy_volume INTEGER, sell_volume INTEGER, trade_count INTEGER,
+    avg_price DECIMAL(10,2), notional DECIMAL(15,2), whale_count INTEGER,
+    PRIMARY KEY (time_bucket, symbol)
+);
+CREATE TABLE watchlist_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id VARCHAR(50) NOT NULL,
+    name VARCHAR(100) NOT NULL, symbols JSONB NOT NULL, filters JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+"""}
+
+
+# ============================================================================
+# User Watchlists (Database-backed)
+# ============================================================================
+
+class UserWatchlist:
+    def __init__(self):
+        self.watchlists = {}
+    
+    def create(self, user_id: str, name: str, symbols: list, filters: dict = None):
+        if user_id not in self.watchlists:
+            self.watchlists[user_id] = []
+        wl = {"id": secrets.token_urlsafe(8), "name": name, "symbols": symbols,
+             "filters": filters or {}, "created_at": datetime.now().isoformat()}
+        self.watchlists[user_id].append(wl)
+        return wl
+    
+    def get_user(self, user_id: str) -> list:
+        return self.watchlists.get(user_id, [])
+    
+    def delete(self, user_id: str, watchlist_id: str) -> bool:
+        wls = self.watchlists.get(user_id, [])
+        for i, wl in enumerate(wls):
+            if wl["id"] == watchlist_id:
+                wls.pop(i)
+                return True
+        return False
+
+
+user_watchlists = UserWatchlist()
+
+@app.post("/watchlist/user/create")
+async def create_user_watchlist(name: str = Query(...), symbols: str = Query(...), token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    symbols_list = [s.strip().upper() for s in symbols.split(",")]
+    return {"watchlist": user_watchlists.create(user_data["user_id"], name, symbols_list)}
+
+@app.get("/watchlist/user")
+async def get_user_watchlists(token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    return {"watchlists": user_watchlists.get_user(user_data["user_id"])}
+
+@app.delete("/watchlist/user/{watchlist_id}")
+async def delete_user_watchlist(watchlist_id: str, token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    success = user_watchlists.delete(user_data["user_id"], watchlist_id)
+    if not success:
+        raise HTTPException(404, "Watchlist not found")
+    return {"status": "deleted"}
+
+
+# ============================================================================
+# Server-Side Alert Processing
+# ============================================================================
+
+class ServerAlertProcessor:
+    def __init__(self):
+        self.thresholds = {}
+    
+    def add_threshold(self, user_id: str, symbol: str, min_size: int, min_dollars: int, channel: str):
+        if user_id not in self.thresholds:
+            self.thresholds[user_id] = []
+        self.thresholds[user_id].append({"id": secrets.token_urlsafe(8), "symbol": symbol,
+            "min_size": min_size, "min_dollars": min_dollars, "channel": channel,
+            "created_at": datetime.now().isoformat()})
+    
+    def add_webhook(self, user_id: str, webhook_url: str):
+        if user_id not in self.thresholds:
+            self.thresholds[user_id] = []
+        self.thresholds[user_id].append({"type": "webhook", "url": webhook_url,
+            "created_at": datetime.now().isoformat()})
+    
+    def check_trade(self, symbol: str, size: int, price: float) -> list:
+        triggered, notional = [], size * price
+        for user_id, thresholds in self.thresholds.items():
+            for th in thresholds:
+                if th.get("symbol") != symbol:
+                    continue
+                if size >= th.get("min_size", 0) or notional >= th.get("min_dollars", 0):
+                    triggered.append({"user_id": user_id, "threshold_id": th["id"], "symbol": symbol,
+                        "size": size, "price": price, "notional": notional,
+                        "channel": th.get("channel"), "timestamp": datetime.now().isoformat()})
+        return triggered
+    
+    def get_thresholds(self, user_id: str) -> list:
+        return self.thresholds.get(user_id, [])
+
+
+alert_processor = ServerAlertProcessor()
+
+@app.post("/alerts/server/threshold")
+async def add_server_threshold(symbol: str = Query(...), min_size: int = Query(10000),
+    min_dollars: int = Query(500000), channel: str = Query("discord"), token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    alert_processor.add_threshold(user_data["user_id"], symbol, min_size, min_dollars, channel)
+    return {"status": "added"}
+
+@app.post("/alerts/server/webhook")
+async def add_alert_webhook(webhook_url: str = Query(...), token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    alert_processor.add_webhook(user_data["user_id"], webhook_url)
+    return {"status": "added"}
+
+@app.get("/alerts/server/thresholds")
+async def get_server_thresholds(token: str = Query(...)):
+    user_data = decode_token(token)
+    if not user_data:
+        raise HTTPException(401, "Invalid token")
+    return {"thresholds": alert_processor.get_thresholds(user_data["user_id"])}
 
