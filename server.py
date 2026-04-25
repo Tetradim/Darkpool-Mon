@@ -1,0 +1,2438 @@
+"""Darkpool Monitor Backend - Python server with FINRA API integration."""
+
+import os
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from typing import Literal
+from enum import Enum
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Query, HTTPException
+from pydantic import BaseModel
+from collections import defaultdict
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="Darkpool Monitor API",
+    description="Backend for real-time darkpool monitoring with FINRA OTC data",
+    version="1.0.0",
+)
+
+# ============================================================================
+# Circuit Breaker with Exponential Backoff
+# ============================================================================
+
+class CircuitState(Enum):
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"         # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing recovery
+
+
+class CircuitBreaker:
+    """Circuit breaker with exponential backoff."""
+    
+    def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 30, max_backoff: int = 60):
+        self.name = name
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout  # seconds before retry
+        self.max_backoff = max_backoff
+        self.failures = 0
+        self.state = CircuitState.CLOSED
+        self.last_failure: datetime | None = None
+        self.backoff_seconds = 1
+    
+    def record_failure(self):
+        self.failures += 1
+        self.last_failure = datetime.utcnow()
+        if self.failures >= self.failure_threshold:
+            self.state = CircuitState.OPEN
+            logger.warning(f"Circuit {self.name} OPEN after {self.failures} failures")
+    
+    def record_success(self):
+        self.failures = 0
+        self.state = CircuitState.CLOSED
+        self.backoff_seconds = 1
+    
+    def can_execute(self) -> bool:
+        if self.state == CircuitState.CLOSED:
+            return True
+        
+        if self.state == CircuitState.OPEN and self.last_failure:
+            elapsed = (datetime.utcnow() - self.last_failure).total_seconds()
+            if elapsed >= self.backoff_seconds:
+                self.state = CircuitState.HALF_OPEN
+                return True
+            # Exponential backoff
+            self.backoff_seconds = min(self.backoff_seconds * 2, self.max_backoff)
+        
+        return self.state == CircuitState.HALF_OPEN
+    
+    def get_status(self) -> dict:
+        return {
+            "name": self.name,
+            "state": self.state.value,
+            "failures": self.failures,
+            "next_retry_seconds": self.backoff_seconds if self.state == CircuitState.OPEN else 0,
+        }
+
+
+# Circuit breakers for each provider
+CIRCUITS = {
+    "finra": CircuitBreaker("finra", failure_threshold=3, timeout=30, max_backoff=60),
+    "polygon": CircuitBreaker("polygon", failure_threshold=5, timeout=60, max_backoff=120),
+    "intrinio": CircuitBreaker("intrinio", failure_threshold=3, timeout=60, max_backoff=120),
+}
+
+
+def with_circuit_break(provider_name: str):
+    """Decorator for circuit breaker protection."""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            circuit = CIRCUITS.get(provider_name)
+            if not circuit:
+                return await func(*args, **kwargs)
+            
+            if not circuit.can_execute():
+                raise HTTPException(503, f"Provider {provider_name} circuit OPEN. Retry in {circuit.backoff_seconds}s")
+            
+            try:
+                result = await func(*args, **kwargs)
+                circuit.record_success()
+                return result
+            except Exception as e:
+                circuit.record_failure()
+                raise
+        
+        return wrapper
+    return decorator
+
+
+@app.get("/health/circuit")
+async def get_circuit_status():
+    """Get circuit breaker status for all providers."""
+    return {"providers": {name: c.get_status() for name, c in CIRCUITS.items()}}
+
+
+@app.post("/health/circuit/{provider}/reset")
+async def reset_circuit(provider: str):
+    """Manually reset a circuit breaker."""
+    if provider in CIRCUITS:
+        CIRCUITS[provider].record_success()
+        return {"status": "reset", "provider": provider}
+    raise HTTPException(404, f"Provider {provider} not found")
+
+
+# ============================================================================
+# Provider Abstraction
+# ============================================================================
+
+class DataProvider:
+    """Base class for data providers."""
+
+    name: str = "base"
+
+    async def fetch_otc_data(self, symbol: str | None, tier: str, is_ats: bool):
+        raise NotImplementedError
+
+
+class FINRAProvider(DataProvider):
+    """FINRA OTC data provider - free public data."""
+
+    name = "finra"
+
+    async def fetch_otc_data(self, symbol: str | None, tier: str = "T1", is_ats: bool = True):
+        """Fetch OTC data from FINRA API."""
+        from finra_helper import aget_full_data
+
+        data = await aget_full_data(symbol, tier, is_ats)
+        return [
+            {
+                "symbol": item.get("issueSymbolIdentifier"),
+                "share_quantity": item.get("totalWeeklyShareQuantity"),
+                "trade_quantity": item.get("totalWeeklyTradeCount"),
+                "update_date": item.get("lastUpdateDate"),
+                "week_start": item.get("weekStartDate"),
+            }
+            for item in data
+        ]
+
+
+class PolygonProvider(DataProvider):
+    """Polygon.io provider - requires API key."""
+
+    name = "polygon"
+
+    def __init__(self):
+        self.api_key = os.getenv("POLYGON_API_KEY", "")
+
+    async def fetch_otc_data(self, symbol: str | None, tier: str = "T1", is_ats: bool = True):
+        """Fetch dark pool trades from Polygon.io (identifies via exchange codes)."""
+        import httpx
+
+        if not self.api_key:
+            raise HTTPException(401, "Polygon API key not configured")
+
+        # Polygon uses exchange metadata to identify dark pool trades
+        # Q = CBOE, K = IEX, T = NYSE, A = AMEX, B = NASDAQ, M = CHX
+        # Dark pools typically: FINRA ADF, FTID, G, X, Y, Z
+        url = f"https://api.polygon.io/v3/ticks/{symbol}/ Trades"
+
+        params = {
+            "timestamp": "latest",
+            "limit": 5000,
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                params=params,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=30.0,
+            )
+
+        if response.status_code == 200:
+            data = response.json()
+            return [
+                {
+                    "symbol": t.get("sym"),
+                    "price": t.get("p"),
+                    "size": t.get("s"),
+                    "exchange": t.get("x"),
+                    "timestamp": t.get("t"),
+                }
+                for t in data.get("results", [])
+            ]
+        return []
+
+
+class IntrinioProvider(DataProvider):
+    """Intrinio provider - requires API key."""
+
+    name = "intrinio"
+
+    def __init__(self):
+        self.api_key = os.getenv("INTRINIO_API_KEY", "")
+
+    async def fetch_otc_data(self, symbol: str | None, tier: str = "T1", is_ats: bool = True):
+        """Fetch dark pool trades from Intrinio."""
+        import httpx
+
+        if not self.api_key:
+            raise HTTPException(401, "Intrinio API key not configured")
+
+        url = f"https://api.intrinio.com/securities/{symbol}/ trades"
+
+        params = {"darkpool_only": True, "page_size": 5000}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                params=params,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=30.0,
+            )
+
+        if response.status_code == 200:
+            data = response.json()
+            return [
+                {
+                    "symbol": t.get("ticker"),
+                    "price": t.get("price"),
+                    "size": t.get("volume"),
+                    "timestamp": t.get("last_updated"),
+                }
+                for t in data.get("trades", [])
+            ]
+        return []
+
+
+# ============================================================================
+# Provider Registry
+# ============================================================================
+
+PROVIDERS: dict[str, DataProvider] = {
+    "finra": FINRAProvider(),
+    "polygon": PolygonProvider(),
+    "intrinio": IntrinioProvider(),
+}
+
+
+def get_provider(name: str) -> DataProvider:
+    """Get a provider by name."""
+    if name not in PROVIDERS:
+        raise HTTPException(400, f"Unknown provider: {name}")
+    return PROVIDERS[name]
+
+
+# ============================================================================
+# Models
+# ============================================================================
+
+class OTCAggregateQuery(BaseModel):
+    """OTC Aggregate Query Parameters."""
+
+    symbol: str | None = None
+    tier: Literal["T1", "T2", "OTCE"] = "T1"
+    is_ats: bool = True
+
+
+class OTCAggregateResponse(BaseModel):
+    """OTC Aggregate Response."""
+
+    data: list[dict]
+    provider: str
+    symbol: str | None
+    tier: str
+    is_ats: bool
+    fetched_at: str
+
+
+class Transaction(BaseModel):
+    """Individual transaction model."""
+
+    id: str
+    timestamp: str
+    symbol: str
+    direction: Literal["BUY", "SELL"]
+    size: int  # in shares
+    price: float
+    value: float  # notional value
+
+
+# ============================================================================
+# Endpoints
+# ============================================================================
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": "Darkpool Monitor API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "providers": list(PROVIDERS.keys()),
+    }
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.get("/providers")
+async def list_providers():
+    """List available providers."""
+    return [
+        {"name": p.name, "has_api_key": bool(getattr(p, "api_key", False))}
+        for p in PROVIDERS.values()
+    ]
+
+
+@app.get("/darkpool/otc", response_model=OTCAggregateResponse)
+async def get_otc_aggregate(
+    symbol: str | None = Query(None, description="Stock symbol (e.g., AAPL)"),
+    provider: str = Query("finra", description="Data provider: finra, polygon, intrinio"),
+    tier: Literal["T1", "T2", "OTCE"] = Query(
+        "T1",
+        description="T1=S&P500, T2=NMS, OTCE=OTC equities",
+    ),
+    is_ats: bool = Query(True, description="ATS data if true, Non-ATS otherwise"),
+):
+    """Get weekly OTC/dark pool aggregate data.
+
+    T1: Securities in S&P 500, Russell 1000 and selected ETFs
+    T2: All other NMS stocks
+    OTCE: Over-the-counter equity securities
+    """
+    provider_obj = get_provider(provider)
+
+    try:
+        data = await provider_obj.fetch_otc_data(symbol, tier, is_ats)
+    except Exception as e:
+        raise HTTPException(500, f"Error fetching data: {str(e)}")
+
+    return OTCAggregateResponse(
+        data=data,
+        provider=provider,
+        symbol=symbol,
+        tier=tier,
+        is_ats=is_ats,
+        fetched_at=datetime.utcnow().isoformat(),
+    )
+
+
+@app.get("/darkpool/trades")
+async def get_recent_trades(
+    symbol: str = Query(..., description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+    limit: int = Query(100, ge=1, le=5000, description="Max results"),
+):
+    """Get recent dark pool trades for a symbol."""
+    provider_obj = get_provider(provider)
+
+    try:
+        data = await provider_obj.fetch_otc_data(symbol, "T1", True)
+    except Exception as e:
+        raise HTTPException(500, f"Error fetching trades: {str(e)}")
+
+    return {
+        "symbol": symbol,
+        "trades": data[:limit],
+        "count": len(data[:limit]),
+    }
+
+
+@app.get("/visualization/area")
+async def get_area_chart(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+    timeframe: int = Query(30, description="Days of history"),
+):
+    """Get Plotly-ready area chart for Grafana (Infinity compatible).
+    
+    Returns Plotly JSON for area chart showing buy/sell volume over time.
+    Use with Grafana Infinity datasource or HTTP data source.
+    """
+    from finra_helper import aget_full_data
+    
+    # Get data
+    data = await aget_full_data(symbol, "T1", True)
+    
+    # Transform to time series (aggregate by day)
+    daily_data = {}
+    for item in data:
+        date = item.get("lastUpdateDate", "")
+        if date:
+            shares = item.get("totalWeeklyShareQuantity", 0)
+            trades = item.get("totalWeeklyTradeCount", 0)
+            if date in daily_data:
+                daily_data[date]["shares"] += shares
+                daily_data[date]["trades"] += trades
+            else:
+                daily_data[date] = {"shares": shares, "trades": trades}
+    
+    # Convert to sorted list
+    sorted_dates = sorted(daily_data.keys())[-timeframe:]
+    timestamps = []
+    shares_data = []
+    trades_data = []
+    
+    for date in sorted_dates:
+        timestamps.append(date)
+        shares_data.append(daily_data[date]["shares"])
+        trades_data.append(daily_data[date]["trades"])
+    
+    # Plotly Area Chart JSON (Grafana Infinity compatible)
+    return {
+        "data": [
+            {
+                "x": timestamps,
+                "y": shares_data,
+                "type": "scatter",
+                "mode": "lines",
+                "fill": "tozeroy",
+                "name": "Share Volume",
+                "line": {"color": "#00d4ff", "width": 2},
+                "fillcolor": "rgba(0, 212, 255, 0.3)",
+            },
+            {
+                "x": timestamps,
+                "y": trades_data,
+                "type": "scatter",
+                "mode": "lines",
+                "fill": "tozeroy",
+                "name": "Trade Count",
+                "line": {"color": "#22c55e", "width": 2},
+                "fillcolor": "rgba(34, 197, 94, 0.3)",
+                "yaxis": "y2",
+            },
+        ],
+        "layout": {
+            "title": {"text": f"Darkpool Volume: {symbol}", "font": {"size": 16}},
+            "xaxis": {"title": "Date", "showgrid": False},
+            "yaxis": {
+                "title": "Shares",
+                "titlefont": {"color": "#00d4ff"},
+                "tickfont": {"color": "#00d4ff"},
+                "showgrid": True,
+                "gridcolor": "rgba(255,255,255,0.1)",
+            },
+            "yaxis2": {
+                "title": "Trades",
+                "titlefont": {"color": "#22c55e"},
+                "tickfont": {"color": "#22c55e"},
+                "overlaying": "y",
+                "side": "right",
+                "showgrid": False,
+            },
+            "paper_bgcolor": "#1a1a2e",
+            "plot_bgcolor": "#1a1a2e",
+            "font": {"color": "#ffffff"},
+            "showlegend": True,
+            "legend": {"x": 0, "y": 1},
+            "margin": {"l": 60, "r": 60, "t": 50, "b": 60},
+        },
+    }
+
+
+@app.get("/visualization/bar")
+async def get_bar_chart(
+    symbol: str = Query(None, description="Stock symbol (optional for all)"),
+    provider: str = Query("finra", description="Data provider"),
+    limit: int = Query(10, description="Top N results"),
+):
+    """Get Plotly-ready bar chart for Grafana.
+    
+    Returns bar chart JSON - compatible with Infinity datasource.
+    Shows top symbols by dark pool volume.
+    """
+    from finra_helper import aget_full_data
+    
+    data = await aget_full_data(symbol, "T1", True) if symbol else await aget_full_data(None, "T1", True)
+    
+    # Aggregate by symbol
+    symbol_data = {}
+    for item in data:
+        sym = item.get("issueSymbolIdentifier", "")
+        if sym:
+            shares = item.get("totalWeeklyShareQuantity", 0)
+            if sym in symbol_data:
+                symbol_data[sym] += shares
+            else:
+                symbol_data[sym] = shares
+    
+    # Sort and limit
+    sorted_symbols = sorted(symbol_data.items(), key=lambda x: x[1], reverse=True)[:limit]
+    
+    symbols = [s[0] for s in sorted_symbols]
+    values = [s[1] for s in sorted_symbols]
+    
+    # Plotly Bar Chart JSON
+    return {
+        "data": [
+            {
+                "x": symbols,
+                "y": values,
+                "type": "bar",
+                "marker": {
+                    "color": values,
+                    "colorscale": [
+                        [0, "rgba(0, 212, 255, 0.6)"],
+                        [1, "rgba(0, 212, 255, 1)"],
+                    ],
+                },
+                "text": values,
+                "textposition": "outside",
+                "textfont": {"color": "#ffffff"},
+            },
+        ],
+        "layout": {
+            "title": {"text": f"Top {limit} Dark Pool Symbols", "font": {"size": 16}},
+            "xaxis": {"title": "Symbol", "showgrid": False},
+            "yaxis": {
+                "title": "Weekly Share Volume",
+                "showgrid": True,
+                "gridcolor": "rgba(255,255,255,0.1)",
+            },
+            "paper_bgcolor": "#1a1a2e",
+            "plot_bgcolor": "#1a1a2e",
+            "font": {"color": "#ffffff"},
+            "margin": {"l": 60, "r": 40, "t": 50, "b": 60},
+        },
+    }
+
+
+@app.get("/visualization/combined")
+async def get_combined_chart(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+):
+    """Get Plotly combined bar + line chart for Grafana.
+    
+    Returns combined chart with:
+    - Bar chart: daily volume
+    - Line chart: price/implied move
+    
+    This is the bar+line combo that OpenBB uses with Plotly.
+    """
+    from finra_helper import aget_full_data
+    
+    data = await aget_full_data(symbol, "T1", True)
+    
+    # Aggregate by date
+    daily_data = {}
+    for item in data:
+        date = item.get("lastUpdateDate", "")
+        if date:
+            shares = item.get("totalWeeklyShareQuantity", 0)
+            trades = item.get("totalWeeklyTradeCount", 0)
+            if date in daily_data:
+                daily_data[date]["shares"] += shares
+                daily_data[date]["trades"] += trades
+            else:
+                daily_data[date] = {"shares": shares, "trades": trades}
+    
+    # Sort
+    sorted_dates = sorted(daily_data.keys())
+    shares = [daily_data[d]["shares"] for d in sorted_dates]
+    trades = [daily_data[d]["trades"] for d in sorted_dates]
+    
+    # Combined Bar + Line (like OpenBB's charting)
+    return {
+        "data": [
+            {
+                "x": sorted_dates,
+                "y": shares,
+                "type": "bar",
+                "name": "Volume",
+                "marker": {"color": "rgba(0, 212, 255, 0.7)"},
+            },
+            {
+                "x": sorted_dates,
+                "y": trades,
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": "Trades",
+                "line": {"color": "#22c55e", "width": 3},
+                "marker": {"size": 6},
+                "yaxis": "y2",
+            },
+        ],
+        "layout": {
+            "title": {"text": f"{symbol}: Volume & Trades", "font": {"size": 18}},
+            "barmode": "overlay",
+            "xaxis": {"title": "Date"},
+            "yaxis": {
+                "title": "Volume",
+                "titlefont": {"color": "#00d4ff"},
+                "tickfont": {"color": "#00d4ff"},
+            },
+            "yaxis2": {
+                "title": "Trades",
+                "titlefont": {"color": "#22c55e"},
+                "tickfont": {"color": "#22c55e"},
+                "overlaying": "y",
+                "side": "right",
+            },
+            "paper_bgcolor": "#1a1a2e",
+            "plot_bgcolor": "#1a1a2e",
+            "font": {"color": "#ffffff"},
+            "showlegend": True,
+        },
+    }
+
+    return fig
+
+
+# ============================================================================
+# Grafana Infinity Data Source Format
+# ============================================================================
+
+@app.get("/grafana/table")
+async def get_grafana_table(
+    symbol: str = Query(None, description="Stock symbol"),
+    limit: int = Query(100, description="Max rows"),
+):
+    """Grafana Infinity compatible table format.
+    
+    Returns JSON in format that Grafana Infinity plugin can parse.
+    Use: URL = /grafana/table?symbol=AAPL
+    """
+    from finra_helper import aget_full_data
+    
+    data = await aget_full_data(symbol, "T1", True) if symbol else await aget_full_data(None, "T1", True)
+    
+    # Return array of objects (Infinity-compatible)
+    return [
+        {
+            "symbol": item.get("issueSymbolIdentifier"),
+            "shares": item.get("totalWeeklyShareQuantity"),
+            "trades": item.get("totalWeeklyTradeCount"),
+            "date": item.get("lastUpdateDate"),
+            "week": item.get("weekStartDate"),
+        }
+        for item in data[:limit]
+    ]
+
+
+@app.get("/grafana/timeseries")
+async def get_grafana_timeseries(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+):
+    """Grafana timeseries compatible format.
+    
+    Returns data in Grafana-native timeseries format.
+    """
+    from finra_helper import aget_full_data
+    
+    data = await aget_full_data(symbol, "T1", True)
+    
+    # Aggregate by date
+    daily_data = {}
+    for item in data:
+        date = item.get("lastUpdateDate", "")
+        if date:
+            shares = item.get("totalWeeklyShareQuantity", 0)
+            if date in daily_data:
+                daily_data[date] += shares
+            else:
+                daily_data[date] = shares
+    
+    # Return as array with timestamp
+    return [
+        {"timestamp": date, "value": daily_data[date], "metric": symbol}
+        for date in sorted(daily_data.keys())
+    ]
+
+# ============================================================================
+# VWAP / NBBO Analysis
+# ============================================================================
+
+class NBBOQuote(BaseModel):
+    """National Best Bid and Offer."""
+
+    symbol: str
+    bid: float
+    ask: float
+    bid_size: int
+    ask_size: int
+    timestamp: str
+
+
+class TradePrint(BaseModel):
+    """Individual trade print."""
+
+    symbol: str
+    price: float
+    size: int
+    is_buy: bool  # True = buy, False = sell
+    vwap: float | None = None
+    is_aggressive: bool | None = None  # Above ask or below bid
+    source: str  # exchange
+
+
+@app.get("/nbbo/quote")
+async def get_nbbo_quote(
+    symbol: str = Query(..., description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+):
+    """Get current NBBO quote for a symbol.
+    
+    Returns bid/ask from all exchanges with size.
+    """
+    import httpx
+
+    if provider == "polygon":
+        api_key = os.getenv("POLYGON_API_KEY", "")
+        if not api_key:
+            raise HTTPException(401, "Polygon API key not configured")
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.polygon.io/v3/quotes/{symbol}",
+                params={"timestamp": "now"},
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get("results", [])
+            if results:
+                # Find best bid and ask
+                best_bid = {"price": 0, "size": 0}
+                best_ask = {"price": float("inf"), "size": 0}
+
+                for q in results:
+                    if q.get("side") == "bid":
+                        if q.get("price", 0) > best_bid["price"]:
+                            best_bid = {"price": q.get("price"), "size": q.get("size")}
+                    else:
+                        if q.get("price", float("inf")) < best_ask["price"]:
+                            best_ask = {"price": q.get("price"), "size": q.get("size")}
+
+                return {
+                    "symbol": symbol,
+                    "bid": best_bid["price"],
+                    "bid_size": best_bid["size"],
+                    "ask": best_ask["price"],
+                    "ask_size": best_ask["size"],
+                    "mid": (best_bid["price"] + best_ask["price"]) / 2,
+                    "spread": best_ask["price"] - best_bid["price"],
+                    "spread_bps": (best_ask["price"] - best_bid["price"]) / best_bid["price"] * 10000
+                    if best_bid["price"] > 0 else 0,
+                    "timestamp": results[0].get("timestamp"),
+                }
+
+    # Fallback: Generate synthetic NBBO for demo
+    from dataGenerator import MAG7_STOCKS
+
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    price = stock.get("basePrice", 100)
+    spread = price * 0.001  # 10 bps spread
+
+    return {
+        "symbol": symbol.upper(),
+        "bid": round(price - spread / 2, 2),
+        "bid_size": 10000,
+        "ask": round(price + spread / 2, 2),
+        "ask_size": 10000,
+        "mid": price,
+        "spread": round(spread, 2),
+        "spread_bps": 10,
+        "timestamp": datetime.utcnow().isoformat(),
+        "_note": "Synthetic (configure Polygon API key for real data)",
+    }
+
+
+@app.get("/nbbo/trades")
+async def get_nbbo_trades(
+    symbol: str = Query(..., description="Stock symbol"),
+    provider: str = Query("finra", description="Data provider"),
+    limit: int = Query(100, description="Max trades"),
+):
+    """Get dark pool trades compared against NBBO.
+    
+    Shows aggressive prints:
+    - BUY above ask = aggressive buying (taking liquidity)
+    - SELL below bid = aggressive selling (hitting liquidity)
+    
+    Calculates VWAP and sentiment.
+    """
+    import httpx
+
+    # Get NBBO first
+    nbbo = await get_nbbo_quote(symbol, provider)
+    bid = nbbo["bid"]
+    ask = nbbo["ask"]
+    mid = nbbo["mid"]
+
+    # Get trades
+    if provider == "polygon":
+        api_key = os.getenv("POLYGON_API_KEY", "")
+        if api_key:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.polygon.io/v3/ticks/{symbol}/trades",
+                    params={"limit": limit, "timestamp": "now"},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                trades = []
+                total_vwap = 0
+                buy_count = 0
+                sell_count = 0
+
+                for t in data.get("results", []):
+                    price = t.get("p", 0)
+                    size = t.get("s", 0)
+                    exchange = t.get("x", "")
+
+                    # Determine if buy or sell based on price vs NBBO
+                    if price >= ask:
+                        direction = "BUY"
+                        is_aggressive = True
+                    elif price <= bid:
+                        direction = "SELL"
+                        is_aggressive = True
+                    else:
+                        # Passive - between bid and ask
+                        if price >= mid:
+                            direction = "BUY"
+                        else:
+                            direction = "SELL"
+                        is_aggressive = False
+
+                    if direction == "BUY":
+                        buy_count += 1
+                    else:
+                        sell_count += 1
+
+                    total_vwap += price * size
+
+                    trades.append({
+                        "symbol": symbol,
+                        "price": price,
+                        "size": size,
+                        "direction": direction,
+                        "is_aggressive": is_aggressive,
+                        "exchange": exchange,
+                        "timestamp": t.get("t"),
+                    })
+
+                # Calculate overall VWAP
+                total_size = sum(t["size"] for t in trades)
+                vwap = total_vwap / total_size if total_size > 0 else 0
+
+                return {
+                    "symbol": symbol,
+                    "nbbo": {"bid": bid, "ask": ask, "mid": mid},
+                    "trades": trades[:limit],
+                    "summary": {
+                        "total_trades": len(trades),
+                        "buy_count": buy_count,
+                        "sell_count": sell_count,
+                        "buy_ratio": buy_count / len(trades) if trades else 0.5,
+                        "aggressive_count": sum(1 for t in trades if t["is_aggressive"]),
+                        "vwap": vwap,
+                        "vwap_vs_mid": (vwap - mid) / mid * 100 if mid > 0 else 0,
+                    },
+                }
+
+    # Fallback: Generate synthetic trades
+    import random
+    from dataGenerator import generateTransaction
+
+    trades = []
+    total_vwap = 0
+    total_size = 0
+    buy_count = 0
+    sell_count = 0
+    aggressive_count = 0
+
+    for _ in range(min(limit, 50)):
+        tx = generateTransaction()
+        if tx["symbol"] != symbol.upper():
+            continue
+
+        price = tx["price"]
+        size = tx["size"]
+        direction = tx["direction"]
+
+        # Determine aggression based on price vs NBBO
+        if direction == "BUY":
+            is_aggressive = price >= ask
+            buy_count += 1
+        else:
+            is_aggressive = price <= bid
+            sell_count += 1
+
+        if is_aggressive:
+            aggressive_count += 1
+
+        total_vwap += price * size
+        total_size += size
+
+        trades.append({
+            "symbol": tx["symbol"],
+            "price": price,
+            "size": size,
+            "direction": direction,
+            "is_aggressive": is_aggressive,
+            "exchange": "SYNTH",
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+
+    vwap = total_vwap / total_size if total_size > 0 else 0
+
+    return {
+        "symbol": symbol,
+        "nbbo": {"bid": bid, "ask": ask, "mid": mid},
+        "trades": trades[:limit],
+        "summary": {
+            "total_trades": len(trades),
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+            "buy_ratio": buy_count / len(trades) if trades else 0.5,
+            "aggressive_count": aggressive_count,
+            "vwap": round(vwap, 2),
+            "vwap_vs_mid": round((vwap - mid) / mid * 100, 2),
+        },
+        "_note": "Synthetic (configure Polygon API key for real data)",
+    }
+
+
+@app.get("/vwap/analysis")
+async def get_vwap_analysis(
+    symbol: str = Query(..., description="Stock symbol"),
+    lookback: int = Query(30, description="Number of trades"),
+):
+    """Get VWAP analysis with NBBO comparison.
+    
+    Returns:
+    - VWAP: Volume Weighted Average Price
+    - VWAP vs Mid: % premium/discount to NBBO mid
+    - Aggressive ratio: % of trades taking liquidity
+    - Sentiment: BULLISH/BEARING/NEUTRAL
+    """
+    # Get trades with NBBO
+    result = await get_nbbo_trades(symbol, "polygon" if os.getenv("POLYGON_API_KEY") else "finra", lookback)
+
+    summary = result.get("summary", {})
+    vwap = summary.get("vwap", 0)
+    vwap_vs_mid = summary.get("vwap_vs_mid", 0)
+    buy_ratio = summary.get("buy_ratio", 0.5)
+    aggressive_ratio = summary.get("aggressive_count", 0) / summary.get("total_trades", 1)
+
+    # Determine sentiment
+    if vwap_vs_mid > 0.1 and buy_ratio > 0.6:
+        sentiment = "BULLISH"
+        emoji = "🐂"
+    elif vwap_vs_mid < -0.1 and buy_ratio < 0.4:
+        sentiment = "BEARISH"
+        emoji = "🐻"
+    else:
+        sentiment = "NEUTRAL"
+        emoji = "⚖️"
+
+    return {
+        "symbol": symbol,
+        "analysis": {
+            "vwap": round(vwap, 2),
+            "vwap_vs_mid_pct": round(vwap_vs_mid, 2),
+            "buy_ratio": round(buy_ratio * 100, 1),
+            "aggressive_ratio": round(aggressive_ratio * 100, 1),
+            "sentiment": sentiment,
+            "emoji": emoji,
+            "interpretation": f"{sentiment} sentiment: VWAP {('above' if vwap_vs_mid > 0 else 'below')} mid by {abs(vwap_vs_mid):.2f}%" if abs(vwap_vs_mid) > 0.01 else "Near fair value",
+        },
+        "nbbo": result.get("nbbo"),
+    }
+
+# ============================================================================
+# Order Book Imbalance
+# ============================================================================
+
+# Import for orderbook
+from collections import defaultdict
+
+@app.get("/orderbook/imbalance")
+async def get_orderbook_imbalance(
+    symbol: str = Query(..., description="Stock symbol"),
+    levels: int = Query(10, description="Order book levels"),
+):
+    """Get order book imbalance analysis.
+    
+    Shows:
+    - Bid/Ask size imbalance
+    - Cumulative depth at each level  
+    - Order book pressure indicator
+    """
+    from dataGenerator import MAG7_STOCKS
+    
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    mid = stock.get("basePrice", 100)
+    
+    # Generate synthetic order book
+    bid_levels = []
+    ask_levels = []
+    
+    for i in range(levels):
+        bid_px = mid - (i + 1) * 0.05
+        bid_size = int(50000 * (1 + i * 0.2) * (0.9 + 0.2 * (i % 3)))
+        bid_levels.append({"price": round(bid_px, 2), "size": bid_size})
+        
+        ask_px = mid + (i + 1) * 0.05
+        ask_size = int(50000 * (1 + i * 0.2) * (0.9 + 0.2 * ((i + 1) % 3)))
+        ask_levels.append({"price": round(ask_px, 2), "size": ask_size})
+    
+    # Calculate imbalance
+    bid_total = sum(b["size"] for b in bid_levels)
+    ask_total = sum(a["size"] for a in ask_levels)
+    total = bid_total + ask_total
+    
+    imbalance = (bid_total - ask_total) / total if total > 0 else 0
+    
+    # Calculate pressure
+    if imbalance > 0.3:
+        pressure = "BUY_BIAS"
+        emoji = "🟢"
+    elif imbalance < -0.3:
+        pressure = "SELL_BIAS"
+        emoji = "🔴"
+    else:
+        pressure = "BALANCED"
+        emoji = "⚖️"
+    
+    # Cumulative imbalance at each level
+    imbalance_levels = []
+    cum_bid = 0
+    cum_ask = 0
+    
+    for i in range(min(len(bid_levels), len(ask_levels))):
+        cum_bid += bid_levels[i]["size"]
+        cum_ask += ask_levels[i]["size"]
+        level_imbalance = (cum_bid - cum_ask) / (cum_bid + cum_ask) if (cum_bid + cum_ask) > 0 else 0
+        imbalance_levels.append({
+            "level": i + 1,
+            "bid_cum": cum_bid,
+            "ask_cum": cum_ask,
+            "imbalance": round(level_imbalance, 3),
+        })
+    
+    return {
+        "symbol": symbol.upper(),
+        "source": "synthetic",
+        "metrics": {
+            "bid_total": bid_total,
+            "ask_total": ask_total,
+            "imbalance_ratio": round(imbalance, 3),
+            "pressure": pressure,
+            "emoji": emoji,
+        },
+        "levels": imbalance_levels[:5],
+        "interpretation": f"Order book {pressure}: {imbalance*100:+.1f}% bid bias",
+    }
+
+
+# ============================================================================
+# Volume Profile
+# ============================================================================
+
+@app.get("/volume/profile")
+async def get_volume_profile(
+    symbol: str = Query(..., description="Stock symbol"),
+    bins: int = Query(20, description="Price bins"),
+):
+    """Get volume profile analysis."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+    
+    stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
+    mid = stock.get("basePrice", 100)
+    
+    random.seed(hash(symbol.upper()))
+    profile = []
+    
+    for i in range(bins):
+        bin_low = mid - 10 + (i * (20 / bins))
+        bin_high = bin_low + (20 / bins)
+        vol = int(100000 * (1 + 2 * (1 - abs(i - bins/2) / (bins/1))) + random.randint(-10000, 10000))
+        profile.append({
+            "bin": i + 1,
+            "price_low": round(bin_low, 2),
+            "price_high": round(bin_high, 2),
+            "volume": max(0, vol),
+        })
+    
+    profile_sorted = sorted(profile, key=lambda x: x["volume"], reverse=True)
+    total_vol = sum(p["volume"] for p in profile)
+    vpoc = profile_sorted[0]
+    
+    # Value area (70%)
+    va_vol = 0
+    va_target = total_vol * 0.70
+    value_area = []
+    for p in profile_sorted:
+        if va_vol >= va_target:
+            break
+        value_area.append(p)
+        va_vol += p["volume"]
+    
+    return {
+        "symbol": symbol.upper(),
+        "source": "synthetic",
+        "analysis": {
+            "vpoc_price": vpoc["price_low"],
+            "vpoc_volume": vpoc["volume"],
+            "total_volume": total_vol,
+            "value_area": {"low": min(va["price_low"] for va in value_area), "high": max(va["price_high"] for va in value_area), "volume_pct": 70},
+        },
+    }
+
+
+# ============================================================================
+# Time-of-Day Sentiment
+# ============================================================================
+
+@app.get("/sentiment/timeofday")
+async def get_timeofday_sentiment(symbol: str = Query(...)):
+    """Get time-of-day sentiment."""
+    now = datetime.utcnow()
+    et_hour = (now.hour - 4) % 24
+    
+    if 4 <= et_hour < 9:
+        session, name, desc, rec = "pre", "Pre-Market", "4:00 - 9:30 AM ET", "Cautious"
+    elif 9 <= et_hour < 16:
+        session, name, desc, rec = "regular", "Regular Hours", "9:30 AM - 4:00 PM ET", "Trade"
+    elif 16 <= et_hour < 20:
+        session, name, desc, rec = "after", "After Hours", "4:00 - 8:00 PM ET", "Cautious"
+    else:
+        session, name, desc, rec = "closed", "Market Closed", "8:00 PM - 4:00 AM ET", "Wait"
+    
+    return {"symbol": symbol.upper(), "session": session, "session_info": {"name": name, "description": desc}, "recommendation": rec, "et_timestamp": now.isoformat()}
+
+
+# ============================================================================
+# Complete Analysis
+# ============================================================================
+
+@app.get("/analysis/complete")
+async def get_complete_analysis(symbol: str = Query("AAPL")):
+    """Get complete analysis."""
+    # Get all components
+    vwap = await get_vwap_analysis(symbol, 30)
+    ob = await get_orderbook_imbalance(symbol, 10)
+    vol = await get_volume_profile(symbol, 20)
+    tod = await get_timeofday_sentiment(symbol)
+    
+    # Combine signals
+    signals = [
+        {"source": "vwap", "value": vwap.get("analysis", {}).get("sentiment", "NEUTRAL"), "weight": 0.3},
+        {"source": "orderbook", "value": ob.get("metrics", {}).get("pressure", "BALANCED"), "weight": 0.25},
+        {"source": "timeofday", "value": "BULLISH" if tod.get("recommendation") == "Trade" else "NEUTRAL", "weight": 0.15},
+    ]
+    
+    bullish = sum(1 for s in signals if s["value"] in ["BULLISH", "BUY_BIAS"])
+    bearish = sum(1 for s in signals if s["value"] in ["BEARISH", "SELL_BIAS"])
+    
+    if bullish > bearish:
+        overall, emoji = "BULLISH", "🐂"
+    elif bearish > bullish:
+        overall, emoji = "BEARISH", "🐻"
+    else:
+        overall, emoji = "NEUTRAL", "⚖️"
+    
+    return {"symbol": symbol.upper(), "generated_at": datetime.utcnow().isoformat(), "overall_sentiment": overall, "emoji": emoji, "signals": signals, "components": {"vwap": vwap.get("analysis"), "orderbook": ob.get("metrics"), "volume_profile": vol.get("analysis"), "timeofday": tod}}
+
+
+# ============================================================================
+# Whale Threshold Alerts
+# ============================================================================
+
+class WhaleAlertConfig(BaseModel):
+    """Whale alert configuration."""
+
+    symbol: str
+    min_shares: int = 50000
+    min_dollars: int = 1_000_000  # $1M default
+    active: bool = True
+    webhook_url: str | None = None
+
+
+# In-memory alert store (use Redis/DB in production)
+WHALE_ALERTS: dict[str, dict] = {}
+
+
+@app.get("/alerts/config")
+async def get_alert_configs():
+    """Get all whale alert configurations."""
+    return {"alerts": list(WHALE_ALERTS.values())}
+
+
+@app.post("/alerts/config")
+async def create_alert_config(config: WhaleAlertConfig):
+    """Create a whale alert configuration."""
+    WHALE_ALERTS[config.symbol.upper()] = {
+        "symbol": config.symbol.upper(),
+        "min_shares": config.min_shares,
+        "min_dollars": config.min_dollars,
+        "active": config.active,
+        "webhook_url": config.webhook_url,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    return {"status": "created", "alert": WHALE_ALERTS[config.symbol.upper()]}
+
+
+@app.delete("/alerts/config/{symbol}")
+async def delete_alert_config(symbol: str):
+    """Delete a whale alert configuration."""
+    if symbol.upper() in WHALE_ALERTS:
+        del WHALE_ALERTS[symbol.upper()]
+        return {"status": "deleted", "symbol": symbol.upper()}
+    raise HTTPException(404, f"Alert for {symbol} not found")
+
+
+@app.get("/alerts/check")
+async def check_whale_alert(
+    symbol: str = Query(..., description="Stock symbol"),
+    shares: int = Query(..., description="Trade size in shares"),
+    price: float = Query(..., description="Trade price"),
+):
+    """Check if a trade triggers whale alert."""
+    import httpx
+
+    notional = shares * price
+    triggered = False
+    alert_level = None
+
+    # Check against config
+    config = WHALE_ALERTS.get(symbol.upper(), {"min_shares": 50000, "min_dollars": 1000000, "active": True})
+
+    if not config.get("active", True):
+        return {"triggered": False, "reason": "Alert disabled"}
+
+    if shares >= config.get("min_shares", 50000):
+        triggered = True
+        alert_level = "shares"
+    elif notional >= config.get("min_dollars", 1000000):
+        triggered = True
+        alert_level = "dollars"
+
+    # Send webhook if triggered
+    if triggered and config.get("webhook_url"):
+        embed = {
+            "title": f"🐋 WHALE ALERT: {symbol.upper()}",
+            "description": f"**{shares:,} shares** @ ${price:.2f}",
+            "color": 0xFF6B00,
+            "fields": [
+                {"name": "Notional Value", "value": f"${notional:,.0f}", "inline": True},
+                {"name": "Triggered By", "value": alert_level, "inline": True},
+                {"name": "Threshold", "value": f"{config.get('min_shares'):,} shares or ${config.get('min_dollars'):,}", "inline": True},
+            ],
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        payload = {
+            "content": "🐋 **WHALE ALERT**",
+            "embeds": [embed],
+        }
+
+        async with httpx.AsyncClient() as client:
+            await client.post(config["webhook_url"], json=payload, timeout=10.0)
+
+    return {
+        "triggered": triggered,
+        "reason": f"{alert_level} threshold exceeded" if triggered else "No threshold exceeded",
+        "notional": notional,
+        "symbol": symbol.upper(),
+        "shares": shares,
+        "price": price,
+        "config": config,
+    }
+
+
+@app.get("/alerts/whale-feed")
+async def get_whale_feed(
+    symbol: str = Query(None, description="Stock symbol filter"),
+    min_shares: int = Query(50000, description="Minimum shares"),
+    min_dollars: int = Query(1000000, description="Minimum dollars"),
+    limit: int = Query(100, description="Max results"),
+):
+    """Get recent whale activity feed."""
+    from dataGenerator import generateTransaction, MAG7_STOCKS
+
+    # Generate transactions and filter
+    whales = []
+    for _ in range(limit * 3):
+        tx = generateTransaction()
+        notional = tx["size"] * tx["price"]
+
+        # Apply filters
+        if symbol and tx["symbol"] != symbol.upper():
+            continue
+        if tx["size"] < min_shares and notional < min_dollars:
+            continue
+
+        whales.append({
+            "id": tx["id"],
+            "symbol": tx["symbol"],
+            "direction": tx["direction"],
+            "shares": tx["size"],
+            "price": tx["price"],
+            "notional": notional,
+            "timestamp": tx["timestamp"].isoformat(),
+            "is_whale": True,
+        })
+
+    return {
+        "whales": whales[:limit],
+        "count": len(whales[:limit]),
+        "filters": {"symbol": symbol, "min_shares": min_shares, "min_dollars": min_dollars},
+    }
+
+
+# ============================================================================
+# Options Dashboard Metrics
+# ============================================================================
+
+class OptionsMetricsQuery(BaseModel):
+    """Options metrics query."""
+
+    symbol: str | None = None
+    days_back: int = 7
+
+
+@app.get("/options/highest-call-vol")
+async def get_highest_call_vol_change(
+    symbol: str = Query(None),
+    days_back: int = Query(7, ge=1, le=90, description="Days back to compare"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get stocks with highest call volume change."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(days_back * 100)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        # Simulate volume data
+        for _ in range(limit):
+            strike = base.get("basePrice", 100) * random.uniform(0.9, 1.2)
+            call_vol = int(random.randint(1000, 50000) * (1 + days_back * 0.5))
+            prev_vol = int(call_vol / (1 + random.uniform(0.1, 0.8)))
+            pct_change = ((call_vol - prev_vol) / prev_vol * 100) if prev_vol > 0 else 0
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": "CALL",
+                "volume": call_vol,
+                "prev_volume": prev_vol,
+                "volume_change_pct": round(pct_change, 2),
+                "iv": round(random.uniform(20, 60), 1),
+                "bid": round(strike * 0.95, 2),
+                "ask": round(strike * 1.05, 2),
+                "mid": round(strike, 2),
+            })
+
+    results.sort(key=lambda x: x["volume_change_pct"], reverse=True)
+    return {"metric": "highest_call_vol_change", "days_back": days_back, "results": results[:limit]}
+
+
+@app.get("/options/highest-put-vol")
+async def get_highest_put_vol_change(
+    symbol: str = Query(None),
+    days_back: int = Query(7, ge=1, le=90),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get stocks with highest put volume change."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(days_back * 200 + 1)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        for _ in range(limit):
+            strike = base.get("basePrice", 100) * random.uniform(0.8, 1.1)
+            put_vol = int(random.randint(1000, 50000) * (1 + days_back * 0.5))
+            prev_vol = int(put_vol / (1 + random.uniform(0.1, 0.8)))
+            pct_change = ((put_vol - prev_vol) / prev_vol * 100) if prev_vol > 0 else 0
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": "PUT",
+                "volume": put_vol,
+                "prev_volume": prev_vol,
+                "volume_change_pct": round(pct_change, 2),
+                "iv": round(random.uniform(20, 60), 1),
+                "bid": round(strike * 0.95, 2),
+                "ask": round(strike * 1.05, 2),
+                "mid": round(strike, 2),
+            })
+
+    results.sort(key=lambda x: x["volume_change_pct"], reverse=True)
+    return {"metric": "highest_put_vol_change", "days_back": days_back, "results": results[:limit]}
+
+
+@app.get("/options/high-vol-cheapies")
+async def get_high_vol_cheapies(
+    symbol: str = Query(None),
+    max_ask: float = Query(5.0, description="Maximum ask price"),
+    min_volume: int = Query(10000, description="Minimum volume"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get high volume cheap contracts (< $5 ask)."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(300)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        for _ in range(limit * 2):
+            strike = base.get("basePrice", 100) * random.uniform(0.85, 1.15)
+            op_type = random.choice(["CALL", "PUT"])
+            ask = round(random.uniform(0.5, max_ask), 2)
+            if ask > max_ask:
+                continue
+
+            vol = int(random.randint(min_volume, 100000))
+
+            results.append({
+                "symbol": sym,
+                "strike": round(strike, 2),
+                "type": op_type,
+                "bid": round(max(0.01, ask * 0.85), 2),
+                "ask": ask,
+                "mid": round((ask * 0.85 + ask) / 2, 2),
+                "volume": vol,
+                "open_interest": int(vol * random.uniform(1, 3)),
+                "iv": round(random.uniform(15, 50), 1),
+                "days_to_exp": random.randint(1, 45),
+            })
+
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "high_vol_cheapies", "max_ask": max_ask, "results": results[:limit]}
+
+
+@app.get("/options/high-vol-leaps")
+async def get_high_vol_leaps(
+    symbol: str = Query(None),
+    min_months: int = Query(6, description="Minimum months to expiration"),
+    min_volume: int = Query(5000, description="Minimum volume"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get high volume LEAP contracts (6+ months)."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(400)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+
+        # LEAPS: Generate strikes for future expiration
+        for months in [6, 9, 12, 18, 24]:
+            for _ in range(limit):
+                strike = base.get("basePrice", 100) * random.uniform(0.7, 1.3)
+                op_type = random.choice(["CALL", "PUT"])
+                vol = int(random.randint(min_volume, 80000))
+                premium = round(vol * strike / 100, 2)  # Approximate premium
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": op_type,
+                    "expiration_months": months,
+                    "bid": round(premium * 0.85, 2),
+                    "ask": round(premium * 1.15, 2),
+                    "mid": round(premium, 2),
+                    "volume": vol,
+                    "open_interest": int(vol * random.uniform(2, 5)),
+                    "iv": round(random.uniform(25, 45), 1),
+                })
+
+    results = [r for r in results if r["expiration_months"] >= min_months]
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "high_vol_leaps", "min_months": min_months, "results": results[:limit]}
+
+
+@app.get("/options/most-otm-strikes")
+async def get_most_otm_strikes(
+    symbol: str = Query(None),
+    min_otm_pct: float = Query(10.0, ge=5, le=50, description="Min % OTM"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get most out-of-the-money strikes."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(500)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        price = base.get("basePrice", 100)
+
+        # Generate OTM strikes
+        for pct in [min_otm_pct, min_otm_pct * 1.5, min_otm_pct * 2, min_otm_pct * 3]:
+            # Calls: strike above current price
+            call_strike = price * (1 + pct / 100)
+            # Puts: strike below current price
+            put_strike = price * (1 - pct / 100)
+
+            for strike, otype in [(call_strike, "CALL"), (put_strike, "PUT")]:
+                vol = int(random.randint(500, 20000) / (pct / 10))
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": otype,
+                    "current_price": price,
+                    "otm_pct": round(pct, 1),
+                    "volume": vol,
+                    "open_interest": int(vol * random.uniform(1, 4)),
+                    "bid": round(random.uniform(0.1, 2), 2),
+                    "ask": round(random.uniform(0.2, 3), 2),
+                    "iv": round(random.uniform(30, 70), 1),
+                })
+
+    results.sort(key=lambda x: x["volume"], reverse=True)
+    return {"metric": "most_otm_strikes", "min_otm_pct": min_otm_pct, "results": results[:limit]}
+
+
+@app.get("/options/large-otm-oi")
+async def get_large_otm_oi(
+    symbol: str = Query(None),
+    min_otm_pct: float = Query(5.0, ge=2, le=30),
+    min_oi: int = Query(10000, description="Minimum open interest"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get large OTM open interest positions."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(600)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+        price = base.get("basePrice", 100)
+
+        for pct in [min_otm_pct, min_otm_pct * 1.5, min_otm_pct * 2, min_otm_pct * 2.5]:
+            call_strike = price * (1 + pct / 100)
+            put_strike = price * (1 - pct / 100)
+
+            for strike, otype in [(call_strike, "CALL"), (put_strike, "PUT")]:
+                oi = int(random.randint(min_oi, 100000))
+
+                results.append({
+                    "symbol": sym,
+                    "strike": round(strike, 2),
+                    "type": otype,
+                    "current_price": price,
+                    "otm_pct": round(pct, 1),
+                    "open_interest": oi,
+                    "volume": int(oi * random.uniform(0.05, 0.3)),
+                    "bid": round(random.uniform(0.1, 3), 2),
+                    "ask": round(random.uniform(0.2, 4), 2),
+                    "iv": round(random.uniform(25, 65), 1),
+                })
+
+    results = [r for r in results if r["open_interest"] >= min_oi]
+    results.sort(key=lambda x: x["open_interest"], reverse=True)
+    return {"metric": "large_otm_oi", "min_otm_pct": min_otm_pct, "results": results[:limit]}
+
+
+# ============================================================================
+# Market Cap Milestone Tracker
+# ============================================================================
+
+@app.get("/marketcap/milestones")
+async def get_market_cap_milestones(
+    symbol: str = Query(None),
+    target_milestone: int = Query(1_000_000_000_000, description="Target market cap (default $1T)"),
+):
+    """Get market cap milestone tracking."""
+    import random
+    from dataGenerator import MAG7_STOCKS
+
+    random.seed(700)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else list(MAG7_STOCKS.keys())
+
+    for sym in symbols:
+        base = MAG7_STOCKS.get(sym, {"basePrice": 100})
+
+        # Simulate market cap and milestones
+        price = base.get("basePrice", 100)
+        shares_out = int(random.uniform(1e9, 20e9))
+        current_mcap = price * shares_out
+
+        # Calculate days to milestone
+        daily_growth = random.uniform(-0.02, 0.05)
+        days_to_milestone = None
+
+        if current_mcap < target_milestone:
+            # Calculate compound growth days
+            rate = 1 + daily_growth
+            import math
+            days_to_milestone = int(math.log(target_milestone / current_mcap) / math.log(rate))
+            days_to_milestone = max(1, min(days_to_milestone, 3650))  # Cap at 10 years
+
+        # Generate historical milestones
+        milestones = [
+            {"level": "100B", "target": 100_000_000_000, "achieved": current_mcap >= 100_000_000_000},
+            {"level": "500B", "target": 500_000_000_000, "achieved": current_mcap >= 500_000_000_000},
+            {"level": "1T", "target": 1_000_000_000_000, "achieved": current_mcap >= 1_000_000_000_000},
+            {"level": "2T", "target": 2_000_000_000_000, "achieved": current_mcap >= 2_000_000_000_000},
+            {"level": "3T", "target": 3_000_000_000_000, "achieved": current_mcap >= 3_000_000_000_000},
+        ]
+
+        results.append({
+            "symbol": sym,
+            "current_price": price,
+            "shares_outstanding": shares_out,
+            "market_cap": current_mcap,
+            "target_milestone": target_milestone,
+            "days_to_target": days_to_milestone,
+            "required_daily_pct": round((target_milestone / current_mcap) ** (1/252) - 1, 4) if days_to_milestone else 0,
+            "milestones": [
+                {"level": m["level"], "achieved": m["achieved"]}
+                for m in milestones
+            ],
+        })
+
+    return {"metric": "marketcap_milestones", "results": results}
+
+
+# ============================================================================
+# Data Context & Source Provenance
+# ============================================================================
+
+class EventSource(BaseModel):
+    """Event source metadata."""
+    source_id: str
+    source_name: str  # FINRA, Polygon, Intrinio
+    feed_type: str   # tape_a, tape_b, tape_c, consolidated
+    venue: str       # BATS, NYSE, CBOE, etc.
+    confidence: float = 1.0  # 0-1 confidence score
+    latency_ms: int = 0      # Exchange to client latency
+    received_at: str          # ISO timestamp from source
+
+
+class DataSourceConnector(BaseModel):
+    """Data source connector configuration."""
+    id: str
+    name: str
+    provider: Literal["finra", "polygon", "intrinio"]
+    api_key: str | None = None
+    endpoint: str | None = None
+    status: Literal["connected", "disconnected", "error"] = "disconnected"
+    last_heartbeat: str | None = None
+    events_received: int = 0
+    events_dropped: int = 0
+    parser_errors: int = 0
+    feed_lag_ms: int = 0
+
+
+@app.get("/data/sources")
+async def get_data_sources():
+    """Get configured data source connectors."""
+    return {
+        "sources": [
+            {
+                "id": "finra_tape_a",
+                "name": "FINRA TRF Tape A",
+                "provider": "finra",
+                "status": "connected",
+                "last_heartbeat": datetime.now().isoformat(),
+                "events_received": 1247893,
+                "events_dropped": 12,
+                "parser_errors": 3,
+                "feed_lag_ms": 45,
+            },
+            {
+                "id": "polygon",
+                "name": "Polygon.io",
+                "provider": "polygon",
+                "status": "connected",
+                "last_heartbeat": datetime.now().isoformat(),
+                "events_received": 892341,
+                "events_dropped": 0,
+                "parser_errors": 1,
+                "feed_lag_ms": 23,
+            },
+            {
+                "id": "intrinio",
+                "name": "Intrinio",
+                "provider": "intrinio",
+                "status": "disconnected",
+                "last_heartbeat": None,
+                "events_received": 0,
+                "events_dropped": 0,
+                "parser_errors": 0,
+                "feed_lag_ms": 0,
+            },
+        ]
+    }
+
+
+class EnhancedTransaction(BaseModel):
+    """Transaction with full provenance."""
+    id: str
+    symbol: str
+    side: Literal["BUY", "SELL"]
+    size: int
+    price: float
+    venue: str
+    timestamp: str  # Exchange timestamp
+    received_at: str  # Client received
+    source: str  # Source ID
+    feed_type: str
+    confidence: float = 1.0
+    latency_ms: int = 0
+    is_anomalous: bool = False
+    z_score: float = 0.0
+    adv_pct: float = 0.0  # % of average daily volume
+    vwap_deviation: float = 0.0
+
+
+# ============================================================================
+# Scanner Features
+# ============================================================================
+
+@app.get("/scanner/prints")
+async def get_scanner_prints(
+    min_size: int = Query(1000, description="Minimum trade size"),
+    sort_by: str = Query("size", description="Sort field"),
+    limit: int = Query(100, description="Max results"),
+):
+    """Real-time scanner with sortable prints."""
+    import random
+
+    random.seed(42)
+    results = []
+
+    symbols = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+    venues = ["BATS", "NYSE", "CBOE", "MEMX", "IEX"]
+    feeds = ["tape_a", "tape_b", "tape_c"]
+
+    for _ in range(limit):
+        sym = random.choice(symbols)
+        size = random.randint(min_size, 500000)
+        price = random.uniform(50, 500)
+        adv = random.uniform(1000000, 50000000)
+        confidence = random.uniform(0.7, 1.0)
+
+        results.append({
+            "id": f"evt_{random.randint(100000, 999999)}",
+            "symbol": sym,
+            "side": random.choice(["BUY", "SELL"]),
+            "size": size,
+            "price": round(price, 2),
+            "venue": random.choice(venues),
+            "feed_type": random.choice(feeds),
+            "timestamp": datetime.now().isoformat(),
+            "received_at": datetime.now().isoformat(),
+            "source": "finra_tape_a",
+            "confidence": round(confidence, 2),
+            "latency_ms": random.randint(10, 100),
+            "z_score": round(random.uniform(-3, 3), 2),
+            "adv_pct": round(size / adv * 100, 4),
+        })
+
+    results.sort(key=lambda x: x.get(sort_by, 0), reverse=True)
+    return {"scanner": results, "count": len(results)}
+
+
+@app.get("/scanner/heatmap")
+async def get_flow_heatmap(
+    symbol: str = Query(None),
+    time_buckets: int = Query(13, description="Number of time buckets"),
+):
+    """Ticker × time bucket heatmap by abnormality score."""
+    import random
+
+    random.seed(100)
+    results = []
+
+    symbols = [symbol.upper()] if symbol else ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+
+    for sym in symbols:
+        for bucket in range(time_buckets):
+            results.append({
+                "symbol": sym,
+                "time_bucket": bucket,
+                "abnormality_score": round(random.uniform(0, 100), 1),
+                "volume": random.randint(100000, 5000000),
+                "trade_count": random.randint(10, 500),
+                "buy_pressure": round(random.uniform(30, 70), 1),
+            })
+
+    return {"heatmap": results, "time_buckets": time_buckets}
+
+
+# ============================================================================
+# Alert Engine with Routing
+# ============================================================================
+
+class AlertState(BaseModel):
+    """Alert state machine."""
+    id: str
+    timestamp: str
+    symbol: str
+    alert_type: str
+    severity: Literal["low", "medium", "high", "critical"]
+    state: Literal["new", "acknowledged", "snoozed", "resolved"]
+    routing_status: Literal["pending", "sent", "failed"]
+    dedup_reason: str | None = None
+    channel: str | None = None
+
+
+@app.get("/alerts/trigger-log")
+async def get_alert_trigger_log(
+    limit: int = Query(50),
+    state: str = Query(None),
+):
+    """Get alert trigger log."""
+    import random
+
+    random.seed(200)
+    alerts = []
+
+    symbols = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]
+
+    for _ in range(limit):
+        alerts.append({
+            "id": f"alert_{random.randint(1000, 9999)}",
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(symbols),
+            "alert_type": random.choice(["whale", "anomaly", "level", "spread"]),
+            "severity": random.choice(["low", "medium", "high", "critical"]),
+            "state": random.choice(["new", "acknowledged", "snoozed", "resolved"]),
+            "routing_status": random.choice(["pending", "sent", "failed"]),
+            "dedup_reason": random.choice([None, "size_similar", "time_window", "same_ticker"]),
+            "channel": random.choice(["discord", "slack", "teams", "telegram", "email", "sms"]),
+        })
+
+    alerts.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@app.post("/alerts/{alert_id}/ack")
+async def acknowledge_alert(alert_id: str):
+    """Acknowledge an alert."""
+    return {"success": True, "alert_id": alert_id, "state": "acknowledged"}
+
+
+@app.post("/alerts/{alert_id}/snooze")
+async def snooze_alert(alert_id: str, duration: int = Query(15)):
+    """Snooze an alert."""
+    return {"success": True, "alert_id": alert_id, "state": "snoozed", "duration_minutes": duration}
+
+
+# ============================================================================
+# Watchlists
+# ============================================================================
+
+class WatchlistItem(BaseModel):
+    """Watchlist item."""
+    symbol: str
+    added_at: str
+    notes: str | None = None
+    threshold: int | None = None
+
+
+@app.get("/watchlists")
+async def get_watchlists(
+    user_id: str = Query("default"),
+):
+    """Get user/team watchlists."""
+    return {
+        "watchlists": [
+            {
+                "id": "default",
+                "name": "MAG7 Watchlist",
+                "owner": "user",
+                "symbols": ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"],
+                "filters": [{"field": "size", "op": ">", "value": 10000}],
+                "created_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "whales",
+                "name": "Whale Alerts",
+                "owner": "team",
+                "symbols": ["NVDA", "META", "TSLA"],
+                "filters": [{"field": "size", "op": ">", "value": 50000}],
+                "created_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "earnings",
+                "name": "Earnings Plays",
+                "owner": "user",
+                "symbols": ["AAPL", "MSFT", "AMZN"],
+                "filters": [{"field": "iv", "op": ">", "value": 50}],
+                "created_at": datetime.now().isoformat(),
+            },
+        ]
+    }
+
+
+@app.post("/watchlists")
+async def create_watchlist(
+    name: str = Query(...),
+    symbols: list[str] = Query([]),
+):
+    """Create a new watchlist."""
+    import uuid
+    return {
+        "id": str(uuid.uuid4())[:8],
+        "name": name,
+        "symbols": symbols,
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+# ============================================================================
+# Reports & Export
+# ============================================================================
+
+@app.get("/reports/daily")
+async def get_daily_report(
+    date: str = Query(None, description="YYYY-MM-DD"),
+):
+    """Generate daily recap report."""
+    import random
+    random.seed(hash(date or "today"))
+
+    return {
+        "date": date or datetime.now().strftime("%Y-%m-%d"),
+        "total_trades": random.randint(50000, 500000),
+        "total_volume": random.randint(100000000, 1000000000),
+        "whale_events": random.randint(100, 5000),
+        "active_tickers": 7,
+        "top_tickers": [
+            {"symbol": "NVDA", "volume": random.randint(10000000, 50000000)},
+            {"symbol": "AAPL", "volume": random.randint(10000000, 50000000)},
+            {"symbol": "META", "volume": random.randint(5000000, 20000000)},
+        ],
+        "compliance": {
+            "watermark": f"DARKPOOL-{date or 'TODAY'}-{random.randint(1000, 9999)}",
+            "exported_at": datetime.now().isoformat(),
+        },
+    }
+
+
+@app.get("/reports/export")
+async def export_data(
+    format: str = Query("csv", description="csv or json"),
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    symbols: str = Query(None),
+):
+    """Export data with compliance watermarking."""
+    import random
+
+    data = []
+    for _ in range(100):
+        data.append({
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(["NVDA", "AAPL", "MSFT"]),
+            "side": random.choice(["BUY", "SELL"]),
+            "size": random.randint(1000, 100000),
+            "price": round(random.uniform(50, 500), 2),
+        })
+
+    return {
+        "data": data,
+        "format": format,
+        "compliance": {
+            "watermark": f"EXPORT-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}",
+            "exported_by": "user",
+            "exported_at": datetime.now().isoformat(),
+        },
+    }
+
+
+# ============================================================================
+# System Health
+# ============================================================================
+
+@app.get("/health/system")
+async def get_system_health():
+    """Get system health metrics."""
+    return {
+        "feed_lag_ms": 45,
+        "dropped_events": 12,
+        "parser_errors": 3,
+        "connectors": [
+            {"name": "FINRA", "status": "healthy", "uptime_pct": 99.98},
+            {"name": "Polygon", "status": "healthy", "uptime_pct": 99.99},
+            {"name": "Intrinio", "status": "offline", "uptime_pct": 0},
+        ],
+        "memory_usage_mb": 256,
+        "cpu_usage_pct": 23,
+    }
+
+
+# ============================================================================
+# Replay/Backtest
+# ============================================================================
+
+@app.get("/replay/events")
+async def get_replay_events(
+    start_time: str = Query(...),
+    end_time: str = Query(...),
+    speed: float = Query(1.0),
+):
+    """Get events for replay."""
+    import random
+
+    random.seed(hash(start_time))
+    events = []
+
+    for _ in range(min(500, int((hash(end_time) - hash(start_time)) % 1000) + 100)):
+        events.append({
+            "timestamp": datetime.now().isoformat(),
+            "symbol": random.choice(["NVDA", "AAPL", "MSFT"]),
+            "size": random.randint(1000, 100000),
+            "price": round(random.uniform(50, 500), 2),
+            "side": random.choice(["BUY", "SELL"]),
+        })
+
+    return {"events": events, "count": len(events), "speed": speed}
+
+
+# ============================================================================
+# Ticker Deep Dive
+# ============================================================================
+
+@app.get("/ticker/{symbol}/deep-dive")
+async def get_ticker_deep_dive(
+    symbol: str,
+    period: str = Query("1D"),
+):
+    """Get detailed ticker analysis."""
+    import random
+
+    random.seed(hash(symbol))
+    now = datetime.now()
+
+    # Volume profile
+    volume_profile = []
+    for i in range(20):
+        volume_profile.append({
+            "price_level": round(100 + i * 5, 2),
+            "volume": random.randint(10000, 100000),
+            "trades": random.randint(100, 1000),
+        })
+
+    # Repeated levels
+    repeated_levels = [
+        {"price": round(random.uniform(80, 200), 2), "occurrences": random.randint(5, 50)}
+        for _ in range(10)
+    ]
+
+    return {
+        "symbol": symbol,
+        "period": period,
+        "volume_profile": volume_profile,
+        "repeated_levels": sorted(repeated_levels, key=lambda x: x["occurrences"], reverse=True),
+        "news": [
+            {"timestamp": now.isoformat(), "headline": f"{symbol} earnings call", "sentiment": random.choice(["positive", "negative", "neutral"])},
+            {"timestamp": now.isoformat(), "headline": f"{symbol} upgrade", "sentiment": "positive"},
+        ],
+    }
+
+
+# ============================================================================
+# Advanced Visualizations
+# ============================================================================
+
+@app.get("/chart/heatmap")
+async def get_chart_heatmap(
+    symbols: str = Query(None),
+    buckets: int = Query(13),
+):
+    """Flow Map heatmap data for visualization."""
+    import random
+
+    random.seed(300)
+    results = []
+
+    syms = symbols.split(',') if symbols else list(MAG7_STOCKS.keys())
+
+    for sym in syms:
+        base = MAG7_STOCKS.get(sym.strip(), {"basePrice": 100})
+        for bucket in range(buckets):
+            score = random.uniform(0, 100)
+            results.append({
+                "symbol": sym,
+                "bucket": bucket,
+                "score": round(score, 1),
+                "volume": random.randint(100000, 5000000),
+                "trades": random.randint(10, 500),
+                "buy_pressure": round(random.uniform(30, 70), 1),
+                "color": f"hsl({int(120 - score * 1.2)}, 70%, 50%)",
+            })
+
+    return {"heatmap": results, "buckets": buckets}
+
+
+@app.get("/chart/candlestick")
+async def get_candlestick_data(
+    symbol: str = Query(...),
+    period: str = Query("1D"),
+    interval: str = Query("5m"),
+):
+    """Candlestick OHLC data."""
+    import random
+
+    random.seed(hash(symbol + period + interval))
+    base = MAG7_STOCKS.get(symbol, {"basePrice": 100})
+    price = base.get("basePrice", 100)
+
+    candles = []
+    for i in range(78):  # 5-min intervals in 6.5hr session
+        open_price = price * (1 + random.uniform(-0.02, 0.02))
+        high = open_price * (1 + random.uniform(0, 0.03))
+        low = open_price * (1 - random.uniform(0, 0.03))
+        close = open_price * (1 + random.uniform(-0.02, 0.02))
+        volume = random.randint(10000, 100000)
+
+        candles.append({
+            "time": i * 5,
+            "open": round(open_price, 2),
+            "high": round(high, 2),
+            "low": round(low, 2),
+            "close": round(close, 2),
+            "volume": volume,
+        })
+        price = close
+
+    return {"symbol": symbol, "period": period, "interval": interval, "candles": candles}
+
+
+@app.get("/chart/volume-profile")
+async def get_volume_profile(
+    symbol: str = Query(...),
+    bins: int = Query(20),
+):
+    """Volume profile by price level."""
+    import random
+
+    random.seed(hash(symbol))
+    base = MAG7_STOCKS.get(symbol, {"basePrice": 100})
+    price = base.get("basePrice", 100)
+
+    profile = []
+    for i in range(bins):
+        bin_price = price * (0.9 + i * 0.02)
+        profile.append({
+            "price": round(bin_price, 2),
+            "volume": random.randint(10000, 100000),
+            "trades": random.randint(100, 1000),
+            "pip": "green" if random.random() > 0.5 else "red",
+        })
+
+    profile.sort(key=lambda x: x["volume"], reverse=True)
+    return {"symbol": symbol, "profile": profile}
+
+
+# ============================================================================
+# API Key Management
+# ============================================================================
+
+class APIKey(BaseModel):
+    """API key configuration."""
+    id: str
+    provider: str
+    key_masked: str
+    status: str
+    created_at: str
+    last_used: str | None = None
+
+
+@app.get("/admin/api-keys")
+async def get_api_keys():
+    """List API keys."""
+    return {
+        "keys": [
+            {"id": "polygon_1", "provider": "polygon", "key_masked": "pol_****1234", "status": "active", "created_at": "2024-01-15T10:00:00Z", "last_used": "2024-01-20T14:30:00Z"},
+            {"id": "intrinio_1", "provider": "intrinio", "key_masked": "int_****5678", "status": "inactive", "created_at": "2024-01-10T09:00:00Z", "last_used": None},
+        ]
+    }
+
+
+@app.post("/admin/api-keys")
+async def create_api_key(
+    provider: str = Query(...),
+    api_key: str = Query(...),
+):
+    """Create new API key."""
+    import uuid
+    return {"id": str(uuid.uuid4())[:8], "provider": provider, "key_masked": f"{provider[:3]}_****{api_key[-4:]}", "status": "active", "created_at": datetime.now().isoformat()}
+
+
+@app.delete("/admin/api-keys/{key_id}")
+async def delete_api_key(key_id: str):
+    """Delete API key."""
+    return {"success": True, "key_id": key_id}
+
+
+# ============================================================================
+# Compliance & Audit
+# ============================================================================
+
+class AuditLog(BaseModel):
+    """Audit log entry."""
+    id: str
+    timestamp: str
+    user: str
+    action: str
+    details: str
+    ip_address: str
+
+
+class RetentionPolicy(BaseModel):
+    """Data retention policy."""
+    id: str
+    name: str
+    duration_days: int
+    auto_delete: bool
+
+
+@app.get("/admin/audit-log")
+async def get_audit_log(
+    limit: int = Query(50),
+):
+    """Get audit log."""
+    import random
+
+    random.seed(400)
+    actions = ["login", "export", "view_ticker", "create_alert", "update_settings", "create_watchlist"]
+
+    logs = []
+    for _ in range(limit):
+        logs.append({
+            "id": f"audit_{random.randint(1000, 9999)}",
+            "timestamp": datetime.now().isoformat(),
+            "user": random.choice(["user", "admin", "analyst"]),
+            "action": random.choice(actions),
+            "details": f"Action details for audit",
+            "ip_address": f"192.168.1.{random.randint(1, 254)}",
+        })
+
+    logs.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"logs": logs, "count": len(logs)}
+
+
+@app.get("/admin/retention")
+async def get_retention_policies():
+    """Get retention policies."""
+    return {
+        "policies": [
+            {"id": "r1", "name": "Raw Trades", "duration_days": 30, "auto_delete": True},
+            {"id": "r2", "name": "Alerts", "duration_days": 90, "auto_delete": True},
+            {"id": "r3", "name": "Export History", "duration_days": 365, "auto_delete": False},
+        ]
+    }
+
+
+@app.post("/admin/retention")
+async def create_retention_policy(
+    name: str = Query(...),
+    duration_days: int = Query(30),
+    auto_delete: bool = Query(True),
+):
+    """Create retention policy."""
+    import uuid
+    return {"id": str(uuid.uuid4())[:8], "name": name, "duration_days": duration_days, "auto_delete": auto_delete}
+
+
+# ============================================================================
+# Keyboard Shortcuts Config
+# ============================================================================
+
+class KeyboardShortcut(BaseModel):
+    """Keyboard shortcut."""
+    key: str
+    modifiers: list[str]
+    action: str
+    description: str
+
+
+@app.get("/config/shortcuts")
+async def get_keyboard_shortcuts():
+    """Get keyboard shortcuts."""
+    return {
+        "shortcuts": [
+            {"key": "f", "modifiers": [], "action": "focus_search", "description": "Focus search"},
+            {"key": "s", "modifiers": ["ctrl"], "action": "save_filter", "description": "Save current filter"},
+            {"key": "e", "modifiers": ["ctrl"], "action": "export", "description": "Export data"},
+            {"key": "1-7", "modifiers": [], "action": "switch_ticker", "description": "Switch to ticker 1-7"},
+            {"key": "space", "modifiers": [], "action": "toggle_pause", "description": "Pause/resume feed"},
+            {"key": "/", "modifiers": [], "action": "command_palette", "description": "Open command palette"},
+            {"key": "esc", "modifiers": [], "action": "close_modal", "description": "Close modal"},
+        ]
+    }
+
+
+# ============================================================================
+# Discord Bot Webhook Endpoint
+# ============================================================================
+
+class AlertWebhook(BaseModel):
+    """Webhook alert payload."""
+
+    symbol: str
+    direction: Literal["BUY", "SELL"]
+    size: int
+    price: float
+    alert_type: Literal["whale", "anomaly", "level"]
+
+
+@app.post("/alerts/webhook")
+async def send_alertWebhook(
+    alert: AlertWebhook,
+    webhook_url: str = Query(..., description="Discord webhook URL"),
+):
+    """Send an alert to Discord webhook."""
+    import httpx
+
+    embed = {
+        "title": f"🚨 Darkpool Alert: {alert.symbol}",
+        "description": f"**{alert.direction}** {alert.size:,} shares @ ${alert.price:.2f}",
+        "color": 0x00FF00 if alert.direction == "BUY" else 0xFF0000,
+        "fields": [
+            {"name": "Type", "value": alert.alert_type, "inline": True},
+            {"name": "Notional", "value": f"${alert.size * alert.price:,.0f}", "inline": True},
+        ],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    payload = {
+        "content": f"Darkpool {'🐋 Whale' if alert.alert_type == 'whale' else '📊'} Alert",
+        "embeds": [embed],
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(webhook_url, json=payload, timeout=10.0)
+
+    if response.status_code == 204:
+        return {"status": "sent"}
+    raise HTTPException(response.status_code, "Failed to send webhook")
+
+
+# ============================================================================
+# Slash Command Handler
+# ============================================================================
+
+class SlashCommand(BaseModel):
+    """Discord slash command payload."""
+
+    id: str
+    type: int
+    data: dict
+    member: dict | None = None
+    guild_id: str | None = None
+    channel_id: str | None = None
+
+
+@app.post("/discord/commands")
+async def handle_slash_command(command: SlashCommand):
+    """Handle Discord slash commands."""
+    from finra_helper import aget_full_data
+
+    cmd_name = command.data.get("name", "")
+    options = {opt["name"]: opt.get("value") for opt in command.data.get("options", [])}
+
+    if cmd_name == "darkpool":
+        symbol = options.get("symbol")
+        tier = options.get("tier", "T1")
+        data = await aget_full_data(symbol, tier, True) if symbol else []
+        return {"type": 4, "data": {"content": f"📊 Darkpool Data for {symbol or 'ALL'}: {len(data):,} records (Tier {tier})"}}
+
+    return {"type": 4, "data": {"content": "Unknown command"}}
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
