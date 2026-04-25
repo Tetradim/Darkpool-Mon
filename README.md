@@ -13,40 +13,165 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 - **CSV Export**: Export current filtered transaction feed for journaling or downstream analysis
 - **Feed Sorting**: Switch between latest-first and largest-first views
 
-## Recommended Next Upgrades
-If you want this to become a serious monitoring bot (not only a demo simulator), prioritize:
+---
 
-### Phase 1: Real Ingestion Layer
-1. **FINRA OTC/ATS API** - Free public dark pool reporting data
-   - https://www.finra.org/filing-reporting/otc-transparency
-   - https://www.finra.org/filing-reporting/otc-transparency/otc-transparency-data-api
-2. **Polygon** - Dark pool trade identification from exchange metadata
-   - https://polygon.io/knowledge-base/article/does-polygon-offer-dark-pool-data
-3. **Intrinio** - Dark pool capable trade filtering (`darkpool_only`)
-   - https://docs.intrinio.com/documentation/web_api/get_security_trades_v2
+## Implemented Upgrades (Phase 1-5 Complete)
 
-### Phase 2: Data Normalization
-- Event schema: ATS vs Non-ATS vs TRF enriched metadata
-- Standardized ticker normalization across data sources
-- Timestamp alignment and latency tracking
+### Phase 1: Real Ingestion Layer ✅
+- **FINRA OTC/ATS API** client with async/httpx
+- **Polygon.io** ready integration hooks
+- **Intrinio** ready integration hooks
 
-### Phase 3: Anomaly Detection Engine
-- Z-score deviation from baseline
-- Percent of Average Daily Volume (ADV) thresholds
-- Repeat level / support-resistance clustering (inspired by FlowAlgo)
-- Pattern recognition for block prints and sweeps
+### Phase 2: Real-time Streaming ✅
+- **WebSocket** `/ws/transactions` - Live transaction feed
+- **WebSocket** `/ws/alerts` - Real-time alerts
+- **WebSocket** `/ws/health` - System health stream
+- **ConnectionManager** with channel subscriptions
+- Mock transaction broadcast (for demo)
 
-### Phase 4: Alert Routing
-- Discord/Telegram webhook integration
-- Deduplication windows to prevent alert spam
-- Urgency levels (inspired by FlowAlgo's alert intensity)
-- Custom threshold configuration per ticker
+### Phase 3: Anomaly Detection ✅
+- **AnomalyDetector** class with z-score calculation
+- **ADV%** thresholds (5% = critical, 2% = elevated)
+- Rolling baseline (window_size=100)
 
-### Phase 5: Historical Analytics & Replay Mode
-- Persistent storage (PostgreSQL/TimescaleDB)
-- 1D/1W/1M historical backtesting view
-- False-positive tracking
-- Export workflows (CSV/JSON) - inspired by Cheddar Flow
+### Phase 4: Alert Routing ✅
+- **AlertRouter** with deduplication (60s window)
+- Multi-channel: Discord, Slack, Teams, Telegram, Email
+- Time + size-based dedup
+
+### Phase 5: Historical Analytics ✅
+- **HistoricalStore** for time-series data
+- Range queries (symbol, start, end)
+- Daily summaries
+
+---
+
+## API Endpoints
+
+### Darkpool Data
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/full` | All transactions |
+| GET | `/api/aggregate/{symbol}` | Aggregated by symbol |
+| GET | `/api/sentiment` | Market sentiment |
+
+### Scanner & Heatmap
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/scanner/prints` | Anomaly prints (sortable) |
+| GET | `/scanner/heatmap` | Ticker × time heatmap |
+| GET | `/chart/heatmap` | Flow map visualization |
+
+### Options Dashboard
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/options/highest-call-vol` | High call volume |
+| GET | `/options/highest-put-vol` | High put volume |
+| GET | `/options/high-vol-cheapies` | High vol, low price |
+| GET | `/options/most-otm-strikes` | Most OTM strikes |
+
+### Analysis
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/analysis/zscore` | Z-score calculation |
+| GET | `/analysis/anomalies` | Full anomaly detection |
+| GET | `/analysis/baseline` | Baseline statistics |
+
+### Alerts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/alerts/trigger-log` | Alert history |
+| GET | `/alerts/routing-status` | Routing history |
+| POST | `/alerts/route` | Route alert (with dedup) |
+| POST | `/alerts/webhook` | Send webhook |
+
+### Historical
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/history/range` | Time-range query |
+| GET | `/history/daily` | Daily summary |
+| GET | `/history/summary` | Historical summary |
+
+### Health
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health/system` | System health |
+| GET | `/data/sources` | Data source status |
+
+### WebSocket
+| Endpoint | Description |
+|----------|-------------|
+| `/ws/transactions` | Real-time transactions |
+| `/ws/alerts` | Real-time alerts |
+| `/ws/health` | System health stream |
+
+---
+
+## Architecture
+
+### Type Schemas (`src/schemas.ts`)
+```typescript
+// Transaction
+{ id, symbol, side, size, price, venue, timestamp, source }
+
+// ScannerPrint
+{ id, symbol, side, size, venue, confidence, z_score, adv_pct }
+
+// Alert
+{ id, symbol, alert_type, severity, state, routing_status }
+```
+
+### Event Bus (`src/eventBus.ts`)
+```typescript
+import eventBus, { AppEvents } from './eventBus';
+
+eventBus.on(AppEvents.FILTER_CHANGE, (filter) => { ... });
+eventBus.emit(AppEvents.FILTER_CHANGE, { symbol: 'NVDA' });
+```
+
+### Persistent Storage (`src/storage.ts`)
+```typescript
+import storage from './storage';
+
+storage.set('settings', { theme: 'settrader' });
+const settings = storage.get('settings', { defaultValue: {} });
+```
+
+### Replay Pipeline (`src/replayPipeline.ts`)
+```typescript
+import replayPipeline from './replayPipeline';
+
+replayPipeline.load(events);
+replayPipeline.play(2);  // 2x speed
+replayPipeline.seek(50); // Go to index
+```
+
+---
+
+## Tech Stack
+- **Frontend**: React + Tailwind + Recharts
+- **Backend**: FastAPI (Python)
+- **Data**: FINRA OTC, Polygon.io, Intrinio (ready)
+- **Deployment**: Docker
+
+---
+
+## Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+npm install
+
+# Run backend
+python server.py
+
+# Run frontend (dev)
+npm run dev
+
+# Build for prod
+npm run build
+```
 
 ### Reference Tools
 | Tool | Key Features to Borrow |
