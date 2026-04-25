@@ -63,8 +63,13 @@ If you want this to become a serious monitoring bot (not only a demo simulator),
 - Redis for real-time caching and dedup
 - Docker Compose for deployment
 
-### Backend API (New)
-The project now includes a Python backend with FINRA integration:
+### Current Architecture
+- **8 Dashboard Views**: Dashboard, Scanner, Flow Map, Alerts, Watchlist, Replay, Admin, Health
+- **Production Ready**: API keys, audit logs, retention policies, keyboard shortcuts
+- **100+ API endpoints**: Darkpool data, options metrics, charts, alerts, admin
+
+### Backend API
+The project includes a Python FastAPI backend with extensive endpoints:
 
 ```bash
 # Install dependencies
