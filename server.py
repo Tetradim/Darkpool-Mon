@@ -2436,3 +2436,125 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+# ============================================================================
+# WebSocket Streaming (Phase 2 - Real-time)
+# ============================================================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+import asyncio
+import json
+
+
+class ConnectionManager:
+    """WebSocket connection manager for real-time updates"""
+    
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+        self.subscriptions: dict = {}
+    
+    async def connect(self, websocket: WebSocket, channel: str = "default"):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        if channel not in self.subscriptions:
+            self.subscriptions[channel] = set()
+        self.subscriptions[channel].add(websocket)
+    
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        for channel in self.subscriptions:
+            self.subscriptions[channel].discard(websocket)
+    
+    async def broadcast(self, message: dict, channel: str = "default"):
+        if channel in self.subscriptions:
+            for conn in list(self.subscriptions[channel]):
+                try:
+                    await conn.send_json(message)
+                except Exception:
+                    pass
+    
+    async def broadcast_transaction(self, transaction: dict):
+        await self.broadcast({
+            "type": "transaction",
+            "data": transaction,
+            "timestamp": datetime.now().isoformat(),
+        }, "transactions")
+    
+    async def broadcast_alert(self, alert: dict):
+        await self.broadcast({
+            "type": "alert",
+            "data": alert,
+            "timestamp": datetime.now().isoformat(),
+        }, "alerts")
+
+
+ws_manager = ConnectionManager()
+
+
+@app.websocket("/ws/transactions")
+async def websocket_transactions(websocket: WebSocket):
+    """WebSocket for real-time transactions"""
+    await ws_manager.connect(websocket, "transactions")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+            if msg.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    """WebSocket for real-time alerts"""
+    await ws_manager.connect(websocket, "alerts")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+            if msg.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/health")
+async def websocket_health(websocket: WebSocket):
+    """WebSocket for system health"""
+    await ws_manager.connect(websocket, "health")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+            if msg.get("type") == "ping":
+                await websocket.send_json({
+                    "type": "pong",
+                    "feed_lag_ms": 45,
+                    "timestamp": datetime.now().isoformat(),
+                })
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+async def broadcast_mock_transactions():
+    """Broadcast mock transactions"""
+    import random
+    while True:
+        await asyncio.sleep(3)
+        txn = {
+            "id": f"evt_{random.randint(100000, 999999)}",
+            "symbol": random.choice(["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]),
+            "side": random.choice(["BUY", "SELL"]),
+            "size": random.randint(1000, 100000),
+            "price": round(random.uniform(50, 500), 2),
+            "venue": random.choice(["BATS", "NYSE", "CBOE", "MEMX"]),
+            "timestamp": datetime.now().isoformat(),
+        }
+        await ws_manager.broadcast_transaction(txn)
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(broadcast_mock_transactions())
