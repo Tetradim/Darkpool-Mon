@@ -2,51 +2,103 @@
 
 Real-time dashboard for tracking multi-million dollar institutional transactions (darkpool activity) for MAG7 stocks.
 
-## Features
-- **7 MAG7 Stock Cards**: NVDA, AAPL, MSFT, GOOGL, AMZN, META, TSLA
-- **Real-time Bar Charts**: Buy/Sell volume visualization
-- **Live Transaction Feed**: Multi-million dollar trades
-- **Summary Statistics**: Buy/Sell ratio, volume tracking
-- **Interactive Ticker Focus**: Click any stock card to filter dashboard views
-- **Smart Alerts Panel**: Whale print + anomaly detection (z-score based)
-- **Filter Persistence**: Remembers selected stock/timeframe/threshold/sort with localStorage
-- **CSV Export**: Export current filtered transaction feed for journaling or downstream analysis
-- **Feed Sorting**: Switch between latest-first and largest-first views
-
 ---
 
-## Implemented Upgrades (Phase 1-5 Complete)
+## Features
 
-### Phase 1: Real Ingestion Layer ✅
-- **FINRA OTC/ATS API** client with async/httpx
-- **Polygon.io** ready integration hooks
-- **Intrinio** ready integration hooks
+### Core Features
+- **7 MAG7 Stock Cards**: NVDA, AAPL, MSFT, GOOGL, AMZN, META, TSLA with live statistics
+- **Real-time Bar Charts**: Buy/Sell volume visualization with interactive tooltips
+- **Live Transaction Feed**: Multi-million dollar trades with venue/source details
+- **Summary Statistics**: Buy/Sell ratio, total volume, average price tracking
+- **Interactive Ticker Focus**: Click any stock card to filter dashboard views
+- **Filter Persistence**: Remembers selected stock/timeframe/threshold/sort with localStorage
+- **CSV Export**: Export current filtered transaction feed
 
-### Phase 2: Real-time Streaming ✅
-- **WebSocket** `/ws/transactions` - Live transaction feed
-- **WebSocket** `/ws/alerts` - Real-time alerts
-- **WebSocket** `/ws/health` - System health stream
-- **ConnectionManager** with channel subscriptions
-- Mock transaction broadcast (for demo)
+### Scanner & Heatmap
+- **Sortable Prints**: Real-time anomaly prints sorted by venue, confidence, z-score, ADV%
+- **Flow Map Heatmap**: Ticker × time bucket visualization
+- **Z-score Detection**: Identify price anomalies (>2 stdev)
+- **ADV% Thresholds**: Flag trades >2% (elevated) or >5% (critical) of average daily volume
 
-### Phase 3: Anomaly Detection ✅
-- **AnomalyDetector** class with z-score calculation
-- **ADV%** thresholds (5% = critical, 2% = elevated)
-- Rolling baseline (window_size=100)
+### Options Dashboard
+- **Highest Call Volume**: Call volume changes with strike/price info
+- **Highest Put Volume**: Put volume changes with strike/price info
+- **High Vol Cheapies**: High volume, low price contracts
+- **High Vol LEAPs**: Long-dated options (6+ months)
+- **Most OTM Strikes**: Out-of-the-money strike distribution
+- **Large OTM OI**: Large open interest at OTM strikes
+- **Market Cap Milestones**: Track market cap thresholds
 
-### Phase 4: Alert Routing ✅
-- **AlertRouter** with deduplication (60s window)
-- Multi-channel: Discord, Slack, Teams, Telegram, Email
-- Time + size-based dedup
+### Alert System
+- **Whale Alerts**: Configurable threshold alerts (size/dollars)
+- **Anomaly Alerts**: Auto-triggered on z-score/ADV% detection
+- **Multi-channel Routing**: Discord, Slack, Teams, Telegram, Email
+- **Deduplication**: Time window + size-based dedup (60s default)
+- **Ack/Snooze Actions**: Alert state management
+- **Webhook Integration**: Send alerts to Discord webhooks
+- **Server-Side Processing**: Alert thresholds stored per user
 
-### Phase 5: Historical Analytics ✅
-- **HistoricalStore** for time-series data
-- Range queries (symbol, start, end)
-- Daily summaries
+### Historical Analytics
+- **Time-range Queries**: Query transactions by symbol, start, end dates
+- **Daily Summaries**: Daily recap with transaction counts and volume
+- **7-Day History**: Historical summary statistics
+- **Database Ready**: TimescaleDB schema for persistence
+
+### Authentication
+- **User Registration**: Email + password with PBKDF2 hashing
+- **JWT Tokens**: 24-hour access tokens
+- **API Key Management**: Create/list provider API keys
+- **Token-protected Endpoints**: Secure user-specific data
+
+### User Watchlists
+- **Create Watchlists**: Custom symbol lists per user
+- **Token-protected CRUD**: Manage watchlists with authentication
+- **Per-user Storage**: Database-backed watchlists
+
+### Analysis & Signals
+- **VWAP Analysis**: Volume-weighted average price
+- **NBBO Quote**: National best bid/offer pricing
+- **Order Book Imbalance**: Buy/sell pressure indicators
+- **Volume Profile**: Point of control (VPOC), value area
+- **Market Sentiment**: Time-of-day session analysis
+- **Complete Analysis**: All signals combined endpoint
+
+### System Health
+- **Feed Status**: Data source connectors (FINRA, Polygon, Intrinio)
+- **Health Metrics**: Feed lag, dropped events, parser errors
+- **Circuit Breaker**: Provider failure detection with exponential backoff
+- **Reconnect UI**: Manual circuit reset
+
+### Advanced Visualizations
+- **Grafana Integration**: Infinity plugin tables, timeseries panels
+- **Plotly Charts**: Area, bar, combined visualizations
+- **HTML Panels**: Direct Plotly embedding
+
+### Replay Mode
+- **Event Replay**: Historical event loading and playback
+- **Speed Control**: Adjustable playback speed (0.5x-10x)
+- **Seek/Skip**: Navigate to specific events
+
+### Settings & Customization
+- **5 Themes**: settrader, cyberpunk, matrix, fire, monochrome
+- **Chart Types**: bar, area, line, candlestick
+- **Layout Options**: grid, list, heatmap views
+- **Card Sizes**: compact, normal, expanded
+- **Whale Threshold**: Customizable size threshold (default 50K shares)
+- **Keyboard Shortcuts**: Quick actions with key bindings
 
 ---
 
 ## API Endpoints
+
+### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/register` | Register new user |
+| POST | `/auth/token` | Login and get JWT |
+| POST | `/auth/api-keys` | Create API key |
+| GET | `/auth/api-keys` | List user's API keys |
 
 ### Darkpool Data
 | Method | Endpoint | Description |
@@ -68,22 +120,49 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 | GET | `/options/highest-call-vol` | High call volume |
 | GET | `/options/highest-put-vol` | High put volume |
 | GET | `/options/high-vol-cheapies` | High vol, low price |
+| GET | `/options/high-vol-leaps` | High vol LEAPs |
 | GET | `/options/most-otm-strikes` | Most OTM strikes |
+| GET | `/options/large-otm-oi` | Large OTM OI |
+| GET | `/marketcap/milestones` | Market cap milestones |
 
 ### Analysis
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/analysis/zscore` | Z-score calculation |
-| GET | `/analysis/anomalies` | Full anomaly detection |
+| GET | `/analysis/anomalies` | Anomaly detection |
 | GET | `/analysis/baseline` | Baseline statistics |
+| GET | `/nbbo/quote` | NBBO quote |
+| GET | `/nbbo/trades` | Trades vs NBBO |
+| GET | `/vwap/analysis` | VWAP analysis |
+| GET | `/orderbook/imbalance` | Order book pressure |
+| GET | `/volume/profile` | Volume profile |
+| GET | `/sentiment/timeofday` | Market session timing |
+| GET | `/analysis/complete` | All signals combined |
 
 ### Alerts
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/alerts/trigger-log` | Alert history |
 | GET | `/alerts/routing-status` | Routing history |
-| POST | `/alerts/route` | Route alert (with dedup) |
+| POST | `/alerts/route` | Route alert (dedup) |
 | POST | `/alerts/webhook` | Send webhook |
+| POST | `/alerts/config` | Configure alert |
+| DELETE | `/alerts/config/{symbol}` | Delete alert |
+| GET | `/alerts/check` | Check threshold |
+| GET | `/alerts/whale-feed` | Whale activity |
+| POST | `/alerts/server/threshold` | Server-side threshold |
+| POST | `/alerts/server/webhook` | Add webhook |
+| GET | `/alerts/server/thresholds` | List thresholds |
+
+### Watchlists
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/watchlists` | All watchlists |
+| POST | `/watchlists` | Create watchlist |
+| DELETE | `/watchlists/{id}` | Delete watchlist |
+| GET | `/watchlist/user` | User watchlists (auth) |
+| POST | `/watchlist/user/create` | Create user watchlist |
+| DELETE | `/watchlist/user/{id}` | Delete user watchlist |
 
 ### Historical
 | Method | Endpoint | Description |
@@ -95,8 +174,18 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 ### Health
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/health/system` | System health |
+| GET | `/` | API info |
+| GET | `/health` | Health check |
+| GET | `/health/system` | System metrics |
 | GET | `/data/sources` | Data source status |
+| GET | `/health/circuit` | Circuit status |
+| POST | `/health/circuit/{p}/reset` | Reset circuit |
+
+### Reports
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/reports/daily` | Daily recap |
+| GET | `/reports/export` | Compliance export |
 
 ### WebSocket
 | Endpoint | Description |
@@ -105,53 +194,79 @@ Real-time dashboard for tracking multi-million dollar institutional transactions
 | `/ws/alerts` | Real-time alerts |
 | `/ws/health` | System health stream |
 
+### Utilities
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/providers` | Available providers |
+| GET | `/ticker/{sym}/deep-dive` | Ticker deep dive |
+| GET | `/replay/events` | Replay events |
+| GET | `/normalize/stats` | Normalizer stats |
+| GET | `/schema/database` | Database schema |
+
 ---
 
 ## Architecture
 
-### Type Schemas (`src/schemas.ts`)
-```typescript
-// Transaction
-{ id, symbol, side, size, price, venue, timestamp, source }
+### Frontend Components
+- **`src/App.jsx`**: Main dashboard application
+- **`src/OptionsDashboard.jsx`**: Options metrics views
+- **`src/ProductionViews.jsx`**: Scanner, Alerts, Watchlist, Health views
+- **`src/AdvancedViews.jsx`**: FlowMap, Replay, Admin views
+- **`src/SettingsModal.jsx`**: Settings configuration
+- **`src/themes.js`**: Theme definitions
+- **`src/eventBus.ts`**: Event bus for component communication
+- **`src/storage.ts`**: Persistent localStorage wrapper
+- **`src/replayPipeline.ts`**: Historical replay engine
+- **`src/schemas.ts`**: Type schemas
 
-// ScannerPrint
-{ id, symbol, side, size, venue, confidence, z_score, adv_pct }
+### Database Schema (TimescaleDB/PostgreSQL)
+```sql
+-- Transactions hypertable
+CREATE TABLE darkpool_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    symbol VARCHAR(10) NOT NULL,
+    side VARCHAR(4) NOT NULL,
+    size INTEGER NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    venue VARCHAR(50),
+    feed_type VARCHAR(10),
+    source VARCHAR(20),
+    notional DECIMAL(15,2),
+    is_whale BOOLEAN DEFAULT FALSE,
+    is_block BOOLEAN DEFAULT FALSE,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-// Alert
-{ id, symbol, alert_type, severity, state, routing_status }
+-- Minute aggregates
+CREATE TABLE darkpool_minutes (
+    time_bucket TIMESTAMPTZ NOT NULL,
+    symbol VARCHAR(10) NOT NULL,
+    buy_volume INTEGER,
+    sell_volume INTEGER,
+    trade_count INTEGER,
+    avg_price DECIMAL(10,2),
+    notional DECIMAL(15,2),
+    whale_count INTEGER,
+    PRIMARY KEY (time_bucket, symbol)
+);
+
+-- User watchlists
+CREATE TABLE watchlist_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id VARCHAR(50) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    symbols JSONB NOT NULL,
+    filters JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
-### Event Bus (`src/eventBus.ts`)
-```typescript
-import eventBus, { AppEvents } from './eventBus';
-
-eventBus.on(AppEvents.FILTER_CHANGE, (filter) => { ... });
-eventBus.emit(AppEvents.FILTER_CHANGE, { symbol: 'NVDA' });
-```
-
-### Persistent Storage (`src/storage.ts`)
-```typescript
-import storage from './storage';
-
-storage.set('settings', { theme: 'settrader' });
-const settings = storage.get('settings', { defaultValue: {} });
-```
-
-### Replay Pipeline (`src/replayPipeline.ts`)
-```typescript
-import replayPipeline from './replayPipeline';
-
-replayPipeline.load(events);
-replayPipeline.play(2);  // 2x speed
-replayPipeline.seek(50); // Go to index
-```
-
----
-
-## Tech Stack
-- **Frontend**: React + Tailwind + Recharts
+### Technology Stack
+- **Frontend**: React + Vite + Tailwind + Recharts
 - **Backend**: FastAPI (Python)
-- **Data**: FINRA OTC, Polygon.io, Intrinio (ready)
+- **Authentication**: JWT with PBKDF2
+- **Database**: TimescaleDB/PostgreSQL (ready)
 - **Deployment**: Docker
 
 ---
@@ -166,221 +281,46 @@ npm install
 # Run backend
 python server.py
 
-# Run frontend (dev)
-npm run dev
-
-# Build for prod
-npm run build
-```
-
-### Reference Tools
-| Tool | Key Features to Borrow |
-|------|----------------------|
-| [FlowAlgo](https://flowalgo.com) | Big prints stream, level clustering, urgency alerts |
-| [Cheddar Flow](https://www.cheddarflow.com/features/dark-pool-data/) | Historical backtesting, price-level accumulation, export UX |
-| [Tradytics](https://tradytics.com) | Dark flow heatmap, top prints dashboard |
-| [BlackBoxStocks](https://blackboxstocks.com) | Scanner-first workflow, one-pane operations |
-| [OpenBB](https://docs.openbb.co/platform/reference/equity/darkpool) | Slash-command bot workflows, Discord automation |
-
-### Tech Additions for Production
-- Node.js/Express backend for API ingestion
-- PostgreSQL/TimescaleDB for time-series storage
-- Redis for real-time caching and dedup
-- Docker Compose for deployment
-
-### Current Architecture
-- **8 Dashboard Views**: Dashboard, Scanner, Flow Map, Alerts, Watchlist, Replay, Admin, Health
-- **Production Ready**: API keys, audit logs, retention policies, keyboard shortcuts
-- **100+ API endpoints**: Darkpool data, options metrics, charts, alerts, admin
-
-### Backend API
-The project includes a Python FastAPI backend with extensive endpoints:
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the API server
-python server.py
-
-# Run the Discord bot (optional)
-python discord_bot.py
-```
-
-#### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | API info and providers |
-| `/health` | GET | Health check |
-| `/providers` | GET | List available providers |
-| `/darkpool/otc` | GET | Weekly OTC aggregate data |
-| `/darkpool/trades` | GET | Recent darkpool trades |
-| `/alerts/webhook` | POST | Send Discord alert |
-
-#### Grafana Integration
-| Endpoint | Description | Use Case |
-|----------|-------------|---------|
-| `/visualization/area` | Plotly area chart JSON | Paste into HTML panel |
-| `/visualization/bar` | Plotly bar chart JSON | Paste into HTML panel |
-| `/visualization/combined` | Plotly bar+line chart | Bar+line combo |
-| `/grafana/table` | Infinity JSON table | Use with Infinity plugin |
-| `/grafana/timeseries` | Grafana timeseries | Use with native TS panel |
-
-#### VWAP / NBBO Integration
-| Endpoint | Description |
-|----------|-------------|
-| `/nbbo/quote` | Get bid/ask for symbol |
-| `/nbbo/trades` | Trades vs NBBO with aggression |
-| `/vwap/analysis` | VWAP, sentiment, aggression |
-| `/orderbook/imbalance` | Order book pressure |
-| `/volume/profile` | VPOC, value area |
-| `/sentiment/timeofday` | Market session timing |
-| `/analysis/complete` | All signals combined |
-
-#### Circuit Breaker / Error Handling
-| Endpoint | Description |
-|----------|-------------|
-| `/health/circuit` | Circuit status for all providers |
-| `POST /health/circuit/{provider}/reset` | Reset circuit breaker |
-
-#### Options Dashboard Metrics
-| Endpoint | Description |
-|----------|-------------|
-| `/options/highest-call-vol` | Highest call volume change (7d default) |
-| `/options/highest-put-vol` | Highest put volume change |
-| `/options/high-vol-cheapies` | High vol, low price contracts |
-| `/options/high-vol-leaps` | High volume LEAPs (6+ months) |
-| `/options/most-otm-strikes` | Most OTM strikes |
-| `/options/large-otm-oi` | Large OTM open interest |
-
-#### Market Cap Milestone Tracker
-| Endpoint | Description |
-|----------|-------------|
-| `/marketcap/milestones` | Market cap milestone tracking |
-
-#### Production Features
-| Endpoint | Description |
-|----------|-------------|
-| `/data/sources` | Data source connectors & status |
-| `/scanner/prints` | Real-time sortable prints |
-| `/scanner/heatmap` | Ticker × time bucket heatmap |
-| `/alerts/trigger-log` | Alert trigger log |
-| `/alerts/{id}/ack` | Acknowledge alert |
-| `/alerts/{id}/snooze` | Snooze alert |
-| `/watchlists` | User/team watchlists |
-| `/reports/daily` | Daily recap with watermark |
-| `/reports/export` | Compliance export |
-| `/health/system` | System health metrics |
-| `/replay/events` | Replay events |
-| `/ticker/{sym}/deep-dive` | Ticker deep dive |
-
-```bash
-# Production examples:
-curl "/scanner/prints?min_size=5000&sort_by=z_score"
-curl "/scanner/heatmap?symbol=AAPL&time_buckets=13"
-curl "/alerts/trigger-log?limit=50"
-curl "/reports/export?format=csv"
-curl "/health/system"
-```
-
-#### Whale Threshold Alerts
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/alerts/config` | GET | List all alert configs |
-| `/alerts/config` | POST | Create whale alert |
-| `/alerts/config/{symbol}` | DELETE | Delete alert |
-| `/alerts/check` | GET | Check trade against thresholds |
-| `/alerts/whale-feed` | GET | Recent whale activity |
-
-```bash
-# Options metrics examples:
-curl "/options/highest-call-vol?symbol=AAPL&days_back=14"
-curl "/options/high-vol-cheapies?max_ask=3.0&min_volume=5000"
-curl "/options/high-vol-leaps?min_months=12"
-curl "/options/most-otm-strikes?min_otm_pct=15"
-curl "/options/large-otm-oi?min_oi=50000"
-curl "/marketcap/milestones?target_milestone=2000000000000"
-```
-
-```bash
-# Default thresholds:
-# - 50,000 shares OR
-# - $1,000,000 notional
-
-# Create alert:
-curl -X POST /alerts/config \
-  -d '{"symbol": "NVDA", "min_shares": 25000, "min_dollars": 500000, "webhook_url": "https://..."}'
-
-# Check trade:
-curl "/alerts/check?symbol=NVDA&shares=75000&price=900"
-```
-
-```bash
-# Circuit behavior:
-# CLOSED → Normal operation
-# OPEN → Failing, exponential backoff (1s → 2s → 4s → 8s ... max 60s)
-# HALF_OPEN → Testing recovery
-```
-```
-BUY above ask  = Aggressive buying (taking liquidity) → Bullish
-SELL below bid = Aggressive selling (hitting) → Bearish
-VWAP > mid    = Institutional buying pressure
-VWAP < mid    = Institutional selling pressure
-```
-
-#### How to Connect to Grafana
-```bash
-# Option 1: Infinity Plugin (FREE)
-# 1. Install: grafana-cli plugins install yesoreyeram-infinity-datasource
-# 2. Add Data Source → Infinity
-# 3. URL: http://localhost:8000/grafana/table?symbol=AAPL
-# 4. Use UQL: parse-json
-
-# Option 2: HTTP Data Source
-# 1. Add Data Source → HTTP
-# 2. URL: http://localhost:8000
-# 3. Query with: /grafana/table?symbol=AAPL
-
-# Option 3: HTML Panel (for Plotly)
-# 1. Install: Grafana HTML Panel plugin
-# 2. Paste endpoint URL in src attribute
-```
-
-#### API Parameters
-- `symbol`: Stock symbol (e.g., AAPL, NVDA)
-- `provider`: finra, polygon, intrinio
-- `tier`: T1 (S&P500), T2 (NMS), OTCE (OTC)
-- `is_ats`: true for ATS, false for Non-ATS
-
-#### Discord Slash Commands
-- `/darkpool symbol:AAPL tier:T1` - Get darkpool data
-- `/setalert symbol:AAPL threshold:100000` - Set whale alert
-- `/alertstatus` - Show active alerts
-- `/removealert symbol:AAPL` - Remove alert
-
-#### Docker Deployment
-```bash
-docker build -t darkpool-monitor .
-docker run -p 8000:8000 darkpool-monitor
-```
-
-## Tech Stack
-- React + Vite
-- Recharts (charting)
-- Tailwind CSS (dark theme)
-
-## Getting Started
-```bash
-npm install
+# Run frontend
 npm run dev
 ```
 
 Open http://localhost:5173 to view the dashboard.
 
-## Suggested Architecture Upgrade (Next Step)
-To move from simulator to production intelligence:
-- Add a backend ingestion service (TRF/ATS, broker/API, websocket stream) that normalizes prints.
-- Persist events into TimescaleDB/PostgreSQL and pre-aggregate minute bars.
-- Push server-side alerts over websocket (not only UI-only alerts).
-- Add auth + user-defined watchlists + custom alert thresholds.
+---
+
+## Configuration
+
+### Default Thresholds
+- **Whale**: 50,000 shares OR $1,000,000 notional
+- **Block**: 10,000 shares
+- **Anomaly**: Z-score >2
+- **ADV% Critical**: >5%
+- **ADV% Elevated**: >2%
+
+### Circuit Breaker States
+- **CLOSED**: Normal operation
+- **OPEN**: Failing, reject requests
+- **HALF_OPEN**: Testing recovery
+
+### Trade Interpretation
+- BUY above ask = Aggressive buying → Bullish
+- SELL below bid = Aggressive selling → Bearish
+- VWAP > mid = Institutional buying pressure
+- VWAP < mid = Institutional selling pressure
+
+---
+
+## Reference Tools
+| Tool | Key Features |
+|------|-------------|
+| [FlowAlgo](https://flowalgo.com) | Big prints stream, level clustering |
+| [Cheddar Flow](https://www.cheddarflow.com) | Historical backtesting, export |
+| [Tradytics](https://tradytics.com) | Dark flow heatmap |
+| [BlackBoxStocks](https://blackboxstocks.com) | Scanner-first workflow |
+| [OpenBB](https://docs.openbb.co) | Slash-command bot |
+
+---
+
+## License
+MIT
