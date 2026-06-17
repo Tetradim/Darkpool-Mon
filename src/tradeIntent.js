@@ -191,6 +191,15 @@ export const formatSourceConfirmationPlan = (plan) => {
   });
 };
 
+export const formatSourceAdjustedConfidence = (intent) => {
+  if (!intent) {
+    return 'Source-adjusted confidence unavailable.';
+  }
+  return `${Number(intent.source_adjusted_confidence).toFixed(1)} source-adjusted from ${Number(
+    intent.confidence
+  ).toFixed(1)} raw at ${Number(intent.source_confirmation_weight).toFixed(2)} source weight.`;
+};
+
 export const formatIntentMoney = (value) => {
   const amount = Number(value || 0);
   if (Math.abs(amount) >= 1_000_000_000) {

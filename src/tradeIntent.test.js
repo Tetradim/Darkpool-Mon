@@ -8,6 +8,7 @@ import {
   formatRiskPlanSummary,
   formatSentinelChecks,
   formatSourceConfirmationPlan,
+  formatSourceAdjustedConfidence,
   formatIntentMoney,
   getIntentTone,
   summarizePulsePacket,
@@ -185,6 +186,22 @@ describe('formatSourceConfirmationPlan', () => {
         ],
       })
     ).toEqual(['MISSING REQUIRED SIP/NBBO feed - price_confirmation']);
+  });
+});
+
+describe('formatSourceAdjustedConfidence', () => {
+  it('summarizes missing adjusted confidence as unavailable', () => {
+    expect(formatSourceAdjustedConfidence(null)).toBe('Source-adjusted confidence unavailable.');
+  });
+
+  it('summarizes source-adjusted confidence against raw confidence', () => {
+    expect(
+      formatSourceAdjustedConfidence({
+        confidence: 82,
+        source_adjusted_confidence: 28.7,
+        source_confirmation_weight: 0.35,
+      })
+    ).toBe('28.7 source-adjusted from 82.0 raw at 0.35 source weight.');
   });
 });
 

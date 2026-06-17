@@ -9,6 +9,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatSourceAdjustedConfidence,
   formatSourceConfirmationPlan,
   getIntentTone,
   summarizePulsePacket,
@@ -630,10 +631,15 @@ const TradeIntentView = () => {
                 <p className="text-sm text-gray-200 leading-6">{intent.readable_summary}</p>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <div className="bg-dark-700 rounded-lg p-3">
                   <div className="text-xs text-gray-500 mb-1">Confidence</div>
                   <div className="text-xl font-mono text-white">{intent.confidence.toFixed(1)}</div>
+                </div>
+                <div className="bg-dark-700 rounded-lg p-3">
+                  <div className="text-xs text-gray-500 mb-1">Source-Adjusted</div>
+                  <div className="text-xl font-mono text-white">{intent.source_adjusted_confidence.toFixed(1)}</div>
+                  <div className="text-xs text-gray-500 mt-1">{formatSourceAdjustedConfidence(intent)}</div>
                 </div>
                 <div className="bg-dark-700 rounded-lg p-3">
                   <div className="text-xs text-gray-500 mb-1">Level</div>

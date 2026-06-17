@@ -26,3 +26,5 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Sentinel Checklist" in production_views
     assert "formatSourceConfirmationPlan" in production_views
     assert "Source Confirmation Plan" in production_views
+    assert "formatSourceAdjustedConfidence" in production_views
+    assert "Source-Adjusted" in production_views

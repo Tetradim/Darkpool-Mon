@@ -91,6 +91,18 @@ def test_trade_intent_includes_confidence_breakdown_for_operator_readability():
     assert all(component.explanation for component in intent.confidence_breakdown)
 
 
+def test_trade_intent_exposes_source_adjusted_confidence_without_overwriting_raw_score():
+    intent = build_trade_intent(
+        _score(score=82.0),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+        source_confirmation_weight=0.35,
+    )
+
+    assert intent.confidence == 82.0
+    assert intent.source_confirmation_weight == 0.35
+    assert intent.source_adjusted_confidence == 28.7
+
+
 def test_trade_intent_marks_supporting_conflicting_and_missing_quality_flags():
     bearish_flow = OptionsFlowSignal(symbol="AAPL", direction="BEARISH", premium=1_200_000, contracts=100)
     bullish_flow = OptionsFlowSignal(symbol="AAPL", direction="BULLISH", premium=600_000, contracts=50)
@@ -261,6 +273,8 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["risk_plan"]["max_risk_dollars"] == 500.0
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
     assert packet["sentinel_confirmation"]["price_confirmed"] is True
+    assert packet["source_confirmation_weight"] == intent.source_confirmation_weight
+    assert packet["source_adjusted_confidence"] == intent.source_adjusted_confidence
     assert packet["quality_flags"] == [flag.model_dump(mode="json") for flag in intent.quality_flags]
     assert packet["sentinel_checks"] == [check.model_dump(mode="json") for check in sentinel.checks]
 
@@ -364,6 +378,8 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["intent"]["confidence_breakdown"]
     assert body["intent"]["confidence_breakdown"][0]["name"] == "Dark pool level"
     assert body["intent"]["quality_flags"]
+    assert body["intent"]["source_confirmation_weight"] == body["confirmation_sources"]["available_confirmation_weight"]
+    assert "source_adjusted_confidence" in body["intent"]
     assert body["sentinel"]["checks"]
     assert body["confirmation_sources"]["sources"]
     assert any(source["id"] == "finra_otc_transparency" for source in body["confirmation_sources"]["sources"])

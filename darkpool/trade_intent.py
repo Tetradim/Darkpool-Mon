@@ -90,6 +90,8 @@ class TradeIntent(BaseModel):
     readable_summary: str
     reasons: list[str]
     blockers: list[str]
+    source_confirmation_weight: float
+    source_adjusted_confidence: float
     risk_plan: RiskPlan | None = None
     confidence_breakdown: list[ConfidenceComponent]
     quality_flags: list[QualityFlag]
@@ -357,6 +359,11 @@ def _apply_source_confirmation_gate(
         )
 
 
+def _source_adjusted_confidence(raw_confidence: float, source_confirmation_weight: float) -> float:
+    capped_weight = min(1.0, max(0.0, source_confirmation_weight))
+    return round(raw_confidence * capped_weight, 2)
+
+
 def build_trade_intent(
     score: ConfluenceScore,
     preferences: TradingPreferences | None = None,
@@ -388,6 +395,8 @@ def build_trade_intent(
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
     _apply_source_confirmation_gate(source_confirmation_weight, preferences, blockers)
+    source_weight = round(max(0.0, source_confirmation_weight), 2)
+    source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
@@ -418,6 +427,8 @@ def build_trade_intent(
         readable_summary=summary,
         reasons=score.reasons,
         blockers=blockers,
+        source_confirmation_weight=source_weight,
+        source_adjusted_confidence=source_adjusted_confidence,
         risk_plan=risk_plan,
         confidence_breakdown=confidence_breakdown,
         quality_flags=quality_flags,
@@ -559,6 +570,8 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "symbol": intent.symbol,
         "action": intent.action,
         "confidence": intent.confidence,
+        "source_confirmation_weight": intent.source_confirmation_weight,
+        "source_adjusted_confidence": intent.source_adjusted_confidence,
         "level_price": intent.level_price,
         "spot_price": intent.spot_price,
         "distance_pct": intent.distance_pct,
