@@ -1078,7 +1078,7 @@ git commit -m "feat: verify discord interaction signatures"
 - Test: `src/tradeIntent.test.js`
 - Test: `tests/test_frontend_trade_intent_integration.py`
 
-- [ ] **Step 1: Add integration test expectation**
+- [x] **Step 1: Add integration test expectation**
 
 ```python
 def test_trade_intent_view_is_split_into_dedicated_modules():
@@ -1087,7 +1087,7 @@ def test_trade_intent_view_is_split_into_dedicated_modules():
     assert Path("src/tradeIntentControls.js").exists()
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -1101,7 +1101,7 @@ Expected:
 AssertionError: expected src/TradeIntentView.jsx to exist
 ```
 
-- [ ] **Step 3: Move URL controls into `src/tradeIntentControls.js`**
+- [x] **Step 3: Move URL controls into `src/tradeIntentControls.js`**
 
 Move from `src/tradeIntent.js`:
 
@@ -1112,7 +1112,7 @@ export const buildTradeIntentUrl = (settings = {}) => { ... };
 
 Keep formatting helpers in `src/tradeIntent.js`.
 
-- [ ] **Step 4: Create `src/TradeIntentSummary.jsx`**
+- [x] **Step 4: Create `src/TradeIntentSummary.jsx`**
 
 ```jsx
 import {
@@ -1163,7 +1163,7 @@ export const TradeIntentSummary = ({ intent, sentinel, pulsePacket, confirmation
 };
 ```
 
-- [ ] **Step 5: Create `src/TradeIntentView.jsx`**
+- [x] **Step 5: Create `src/TradeIntentView.jsx`**
 
 Move the current `TradeIntentView` body from `ProductionViews.jsx` into the new file and import:
 
@@ -1173,7 +1173,7 @@ import { getIntentTone } from './tradeIntent';
 import { TradeIntentSummary } from './TradeIntentSummary';
 ```
 
-- [ ] **Step 6: Simplify `ProductionViews.jsx`**
+- [x] **Step 6: Simplify `ProductionViews.jsx`**
 
 Remove the inline `TradeIntentView` implementation and import:
 
@@ -1181,7 +1181,7 @@ Remove the inline `TradeIntentView` implementation and import:
 import { TradeIntentView } from './TradeIntentView';
 ```
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 Run:
 
@@ -1197,7 +1197,7 @@ Expected:
 Vitest passes, pytest frontend integration passes, Vite build exits 0
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/TradeIntentView.jsx src/TradeIntentSummary.jsx src/tradeIntentControls.js src/ProductionViews.jsx src/App.jsx src/tradeIntent.js src/tradeIntent.test.js tests/test_frontend_trade_intent_integration.py

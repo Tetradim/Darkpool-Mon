@@ -11,20 +11,27 @@ def test_vite_dev_server_proxies_backend_api_routes():
 
 def test_trade_intent_view_is_reachable_from_app_navigation():
     app = Path("src/App.jsx").read_text(encoding="utf-8")
-    production_views = Path("src/ProductionViews.jsx").read_text(encoding="utf-8")
+    trade_intent_view = Path("src/TradeIntentView.jsx").read_text(encoding="utf-8")
+    trade_intent_summary = Path("src/TradeIntentSummary.jsx").read_text(encoding="utf-8")
 
     assert "TradeIntentView" in app
+    assert "from './TradeIntentView'" in app
     assert "'intent'" in app
-    assert "TradeIntentView" in production_views
-    assert "/darkpool/trade-intent" in production_views
-    assert "formatQualityFlags" in production_views
-    assert "Signal Quality Flags" in production_views
-    assert "Max Caution Flags" in production_views
-    assert "Min Support Flags" in production_views
-    assert "Min Source Weight" in production_views
-    assert "formatSentinelChecks" in production_views
-    assert "Sentinel Checklist" in production_views
-    assert "formatSourceConfirmationPlan" in production_views
-    assert "Source Confirmation Plan" in production_views
-    assert "formatSourceAdjustedConfidence" in production_views
-    assert "Source-Adjusted" in production_views
+    assert "buildTradeIntentUrl" in trade_intent_view
+    assert "Max Caution Flags" in trade_intent_view
+    assert "Min Support Flags" in trade_intent_view
+    assert "Min Source Weight" in trade_intent_view
+    assert "formatQualityFlags" in trade_intent_summary
+    assert "Signal Quality Flags" in trade_intent_summary
+    assert "formatSentinelChecks" in trade_intent_summary
+    assert "Sentinel Checklist" in trade_intent_summary
+    assert "formatSourceConfirmationPlan" in trade_intent_summary
+    assert "Source Confirmation Plan" in trade_intent_summary
+    assert "formatSourceAdjustedConfidence" in trade_intent_summary
+    assert "Source-Adjusted" in trade_intent_summary
+
+
+def test_trade_intent_view_is_split_into_dedicated_modules():
+    assert Path("src/TradeIntentView.jsx").exists()
+    assert Path("src/TradeIntentSummary.jsx").exists()
+    assert Path("src/tradeIntentControls.js").exists()

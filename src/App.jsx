@@ -20,7 +20,8 @@ import {
 import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
 import SettingsModal from './SettingsModal';
 import OptionsDashboard from './OptionsDashboard';
-import { ScannerView, AlertsView, WatchlistView, TradeIntentView, HealthView } from './ProductionViews';
+import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
+import { TradeIntentView } from './TradeIntentView';
 import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
 import { computeZScore, rowsToCsv } from './flowEngine';
 
