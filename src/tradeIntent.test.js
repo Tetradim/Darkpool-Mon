@@ -155,8 +155,10 @@ describe('formatRiskPlanSummary', () => {
         stop_price: 181.8,
         target_price: 176.4,
         max_risk_dollars: 500,
+        estimated_loss_dollars: 333.6,
+        estimated_gain_dollars: 834.0,
       })
-    ).toBe('SELL plan: 278 shares, stop $181.80, target $176.40, max risk $500.');
+    ).toBe('SELL plan: 278 shares, stop $181.80, target $176.40, est loss $334, est gain $834, max risk $500.');
   });
 });
 

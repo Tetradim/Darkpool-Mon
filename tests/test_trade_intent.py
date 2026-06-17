@@ -258,6 +258,27 @@ def test_trade_intent_keeps_risk_plan_when_blocked_by_source_coverage_only():
     assert any("required source coverage is incomplete" in blocker for blocker in intent.blockers)
 
 
+def test_trade_intent_risk_plan_uses_share_rounded_notional_and_entry_stop_loss():
+    intent = build_trade_intent(
+        _score(score=82.0),
+        TradingPreferences(
+            min_score=80,
+            max_distance_pct=1.0,
+            min_notional=50_000_000,
+            max_risk_dollars=500,
+            stop_distance_pct=1.0,
+            reward_risk_ratio=2.0,
+            max_position_notional=50_000,
+        ),
+    )
+
+    assert intent.risk_plan is not None
+    assert intent.risk_plan.estimated_shares == 278
+    assert intent.risk_plan.position_notional == 49873.2
+    assert intent.risk_plan.estimated_loss_dollars == 333.6
+    assert intent.risk_plan.estimated_gain_dollars == 1167.6
+
+
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
     preferences = TradingPreferences(
         min_score=80,

@@ -145,13 +145,6 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
         return None
 
     stop_fraction = preferences.stop_distance_pct / 100
-    risk_limited_notional = preferences.max_risk_dollars / stop_fraction
-    position_notional = min(risk_limited_notional, preferences.max_position_notional)
-    estimated_shares = floor(position_notional / score.spot_price)
-    if estimated_shares <= 0:
-        blockers.append("position sizing produced zero shares")
-        return None
-
     if action == "BUY":
         stop_price = score.level_price * (1 - stop_fraction)
         target_price = score.level_price * (1 + stop_fraction * preferences.reward_risk_ratio)
@@ -159,11 +152,28 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
         stop_price = score.level_price * (1 + stop_fraction)
         target_price = score.level_price * (1 - stop_fraction * preferences.reward_risk_ratio)
 
-    notes = ["position sizing is a planning envelope, not an order"]
-    if position_notional < risk_limited_notional:
-        notes.append("position capped by max position notional")
+    risk_per_share = abs(score.spot_price - stop_price)
+    if risk_per_share <= 0:
+        blockers.append("stop price equals entry price and produces zero risk per share")
+        return None
 
-    estimated_loss = position_notional * stop_fraction
+    risk_limited_shares = floor(preferences.max_risk_dollars / risk_per_share)
+    notional_limited_shares = floor(preferences.max_position_notional / score.spot_price)
+    estimated_shares = min(risk_limited_shares, notional_limited_shares)
+    if estimated_shares <= 0:
+        blockers.append("position sizing produced zero shares")
+        return None
+
+    position_notional = estimated_shares * score.spot_price
+
+    notes = ["position sizing is a planning envelope, not an order"]
+    if estimated_shares == notional_limited_shares and notional_limited_shares < risk_limited_shares:
+        notes.append("position capped by max position notional")
+    if estimated_shares < risk_limited_shares or estimated_shares < notional_limited_shares:
+        notes.append("position rounded down to whole shares")
+
+    estimated_loss = estimated_shares * risk_per_share
+    estimated_gain = estimated_shares * abs(target_price - score.spot_price)
     return RiskPlan(
         planned_action=action,
         max_risk_dollars=float(preferences.max_risk_dollars),
@@ -174,8 +184,8 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
         estimated_shares=estimated_shares,
         stop_price=round(stop_price, 2),
         target_price=round(target_price, 2),
-        estimated_loss_dollars=round(min(estimated_loss, preferences.max_risk_dollars), 2),
-        estimated_gain_dollars=round(min(estimated_loss, preferences.max_risk_dollars) * preferences.reward_risk_ratio, 2),
+        estimated_loss_dollars=round(estimated_loss, 2),
+        estimated_gain_dollars=round(estimated_gain, 2),
         notes=notes,
     )
 

@@ -84,9 +84,15 @@ export const formatRiskPlanSummary = (riskPlan) => {
     return 'Risk plan unavailable.';
   }
   const actionPrefix = riskPlan.planned_action ? `${riskPlan.planned_action} plan: ` : '';
+  const estimatedLoss = Number(riskPlan.estimated_loss_dollars);
+  const estimatedGain = Number(riskPlan.estimated_gain_dollars);
+  const estimateSummary =
+    Number.isFinite(estimatedLoss) && Number.isFinite(estimatedGain)
+      ? `, est loss ${formatIntentMoney(estimatedLoss)}, est gain ${formatIntentMoney(estimatedGain)}`
+      : '';
   return `${actionPrefix}${riskPlan.estimated_shares} shares, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
     riskPlan.target_price
-  ).toFixed(2)}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
+  ).toFixed(2)}${estimateSummary}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
 };
 
 export const formatConfirmationSummary = (confirmation) => {
