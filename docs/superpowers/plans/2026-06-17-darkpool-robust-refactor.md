@@ -926,7 +926,7 @@ git commit -m "fix: report source confirmation availability accurately"
 - Modify: `server.py` or `routes/discord_routes.py`
 - Test: `tests/test_discord_security.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 import pytest
@@ -947,7 +947,7 @@ def test_discord_signature_verifier_rejects_unsigned_payload_when_required():
         verifier.verify(timestamp="1", body=b"{}", signature="")
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -961,7 +961,7 @@ Expected:
 ModuleNotFoundError: No module named 'darkpool.discord_security'
 ```
 
-- [ ] **Step 3: Implement verifier**
+- [x] **Step 3: Implement verifier**
 
 ```python
 """Discord interaction signature verification."""
@@ -995,7 +995,7 @@ class DiscordSignatureVerifier:
         return True
 ```
 
-- [ ] **Step 4: Add dependency and env docs**
+- [x] **Step 4: Add dependency and env docs**
 
 In `requirements.txt`:
 
@@ -1010,7 +1010,7 @@ DISCORD_PUBLIC_KEY=your_discord_application_public_key_here
 ALLOW_UNSIGNED_DISCORD_INTERACTIONS=false
 ```
 
-- [ ] **Step 5: Wire route verification**
+- [x] **Step 5: Wire route verification**
 
 For the route implementation, accept `Request` and read raw body before parsing:
 
@@ -1042,7 +1042,7 @@ Tests that post unsigned commands should set:
 monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -1056,7 +1056,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add darkpool/discord_security.py server.py requirements.txt .env.example tests/test_discord_security.py tests/test_provider_and_discord.py

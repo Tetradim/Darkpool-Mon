@@ -10,7 +10,7 @@ from typing import Literal, Optional
 from enum import Enum
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
@@ -22,6 +22,7 @@ from darkpool.command_service import (
     build_levels_summary,
     build_watchlist_summary,
 )
+from darkpool.discord_security import DiscordSignatureVerifier, SignatureVerificationError
 from darkpool.discord_formatting import summary_to_embed
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
@@ -3004,8 +3005,23 @@ async def delete_discord_subscription(subscription_id: str, channel_id: str | No
 
 
 @app.post("/discord/commands")
-async def handle_slash_command(command: SlashCommand):
+async def handle_slash_command(request: Request):
     """Handle Discord slash commands."""
+    body = await request.body()
+    verifier = DiscordSignatureVerifier(
+        public_key=os.getenv("DISCORD_PUBLIC_KEY", ""),
+        allow_unsigned=os.getenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "false").lower() == "true",
+    )
+    try:
+        verifier.verify(
+            timestamp=request.headers.get("X-Signature-Timestamp", ""),
+            body=body,
+            signature=request.headers.get("X-Signature-Ed25519", ""),
+        )
+    except SignatureVerificationError:
+        raise HTTPException(401, "Invalid Discord signature")
+
+    command = SlashCommand.model_validate_json(body)
     cmd_name = command.data.get("name", "")
     options = {opt["name"]: opt.get("value") for opt in command.data.get("options", [])}
     symbol = options.get("symbol", "AAPL")

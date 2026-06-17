@@ -48,7 +48,8 @@ def test_api_compatibility_routes_return_data():
     assert "sentiment" in response.json()
 
 
-def test_discord_unknown_command_payload_is_handled():
+def test_discord_unknown_command_payload_is_handled(monkeypatch):
+    monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
     client = TestClient(server.app)
     response = client.post(
         "/discord/commands",
@@ -59,7 +60,8 @@ def test_discord_unknown_command_payload_is_handled():
     assert response.json()["data"]["content"] == "Unknown command"
 
 
-def test_discord_interaction_levels_command_returns_embed():
+def test_discord_interaction_levels_command_returns_embed(monkeypatch):
+    monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
     client = TestClient(server.app)
     response = client.post(
         "/discord/commands",
@@ -85,7 +87,8 @@ def test_discord_interaction_levels_command_returns_embed():
     assert body["data"]["embeds"][0]["title"].startswith("AAPL")
 
 
-def test_discord_interaction_subscribe_command_creates_subscription():
+def test_discord_interaction_subscribe_command_creates_subscription(monkeypatch):
+    monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
     client = TestClient(server.app)
     response = client.post(
         "/discord/commands",

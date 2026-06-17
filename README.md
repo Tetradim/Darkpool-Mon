@@ -75,6 +75,8 @@ python discord_bot.py
 - `UNUSUAL_WHALES_API_KEY`: optional future options-flow/GEX integration.
 - `DISCORD_BOT_TOKEN`: Discord bot token.
 - `DISCORD_GUILD_ID`: optional guild ID for faster command sync during development.
+- `DISCORD_PUBLIC_KEY`: Discord application public key for verifying HTTP interaction signatures.
+- `ALLOW_UNSIGNED_DISCORD_INTERACTIONS`: set to `true` only for local unsigned Discord command payload tests.
 - `DISCORD_WEBHOOK_URL`: optional webhook for backend alert routing.
 - `WHALE_THRESHOLD`: default share threshold for whale alerts.
 
