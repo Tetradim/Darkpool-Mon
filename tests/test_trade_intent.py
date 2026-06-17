@@ -103,6 +103,17 @@ def test_trade_intent_exposes_source_adjusted_confidence_without_overwriting_raw
     assert intent.source_adjusted_confidence == 28.7
 
 
+def test_trade_intent_caps_source_confirmation_weight_for_operator_readability():
+    intent = build_trade_intent(
+        _score(score=82.0),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+        source_confirmation_weight=1.15,
+    )
+
+    assert intent.source_confirmation_weight == 1.0
+    assert intent.source_adjusted_confidence == 82.0
+
+
 def test_trade_intent_marks_supporting_conflicting_and_missing_quality_flags():
     bearish_flow = OptionsFlowSignal(symbol="AAPL", direction="BEARISH", premium=1_200_000, contracts=100)
     bullish_flow = OptionsFlowSignal(symbol="AAPL", direction="BULLISH", premium=600_000, contracts=50)

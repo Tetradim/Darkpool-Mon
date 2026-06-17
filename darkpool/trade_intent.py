@@ -408,14 +408,14 @@ def build_trade_intent(
 
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
+    source_weight = round(min(1.0, max(0.0, source_confirmation_weight)), 2)
     _apply_source_confirmation_gate(
-        source_confirmation_weight,
+        source_weight,
         source_coverage_complete,
         missing_source_coverage,
         preferences,
         blockers,
     )
-    source_weight = round(max(0.0, source_confirmation_weight), 2)
     source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
     confidence_breakdown = _build_confidence_breakdown(score)

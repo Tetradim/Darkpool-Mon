@@ -200,14 +200,11 @@ def build_trade_confirmation_plan(
         sources.append(source.model_copy(update={"status": status}))
 
     confirmation_sources = [source for source in sources if source.confirmation_weight > 0]
-    available_weight = round(
-        sum(source.confirmation_weight for source in confirmation_sources if source.status in {"available", "configured"}),
-        2,
+    available_raw_weight = sum(
+        source.confirmation_weight for source in confirmation_sources if source.status in {"available", "configured"}
     )
-    missing_weight = round(
-        sum(source.confirmation_weight for source in confirmation_sources if source.status == "missing"),
-        2,
-    )
+    available_weight = round(min(1.0, available_raw_weight), 2)
+    missing_weight = round(max(0.0, 1.0 - available_weight), 2)
     recommendations = _build_recommendations(sources)
     coverage = _build_coverage(sources)
     required_coverage_complete = all(item.status == "met" for item in coverage if item.required)

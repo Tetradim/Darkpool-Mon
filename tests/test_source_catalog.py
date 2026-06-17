@@ -75,6 +75,17 @@ def test_configured_halt_and_edgar_sources_complete_required_confirmation_covera
     assert "required confirmations complete" in plan.summary
 
 
+def test_confirmation_plan_caps_operator_weight_at_full_coverage():
+    plan = build_trade_confirmation_plan(
+        active_provider="demo",
+        configured_providers=["polygon", "intrinio", "nasdaq_halts", "sec_edgar"],
+    )
+
+    assert plan.available_confirmation_weight == 1.0
+    assert plan.missing_confirmation_weight == 0.0
+    assert "1.00 confirmation weight configured, 0.00 missing" in plan.summary
+
+
 def test_information_sources_endpoint_does_not_mark_finra_available_for_demo_workflow():
     from fastapi.testclient import TestClient
 
