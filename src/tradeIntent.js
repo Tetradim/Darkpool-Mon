@@ -83,7 +83,8 @@ export const formatRiskPlanSummary = (riskPlan) => {
   if (!riskPlan) {
     return 'Risk plan unavailable.';
   }
-  return `${riskPlan.estimated_shares} shares, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
+  const actionPrefix = riskPlan.planned_action ? `${riskPlan.planned_action} plan: ` : '';
+  return `${actionPrefix}${riskPlan.estimated_shares} shares, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
     riskPlan.target_price
   ).toFixed(2)}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
 };

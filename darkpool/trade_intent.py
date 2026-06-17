@@ -37,6 +37,7 @@ class TradingPreferences(BaseModel):
 
 
 class RiskPlan(BaseModel):
+    planned_action: Literal["BUY", "SELL"]
     max_risk_dollars: float
     stop_distance_pct: float
     reward_risk_ratio: float
@@ -164,6 +165,7 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
 
     estimated_loss = position_notional * stop_fraction
     return RiskPlan(
+        planned_action=action,
         max_risk_dollars=float(preferences.max_risk_dollars),
         stop_distance_pct=float(preferences.stop_distance_pct),
         reward_risk_ratio=float(preferences.reward_risk_ratio),

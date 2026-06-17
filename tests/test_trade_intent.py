@@ -253,6 +253,7 @@ def test_trade_intent_keeps_risk_plan_when_blocked_by_source_coverage_only():
     assert intent.status == "blocked"
     assert intent.action == "HOLD"
     assert intent.risk_plan is not None
+    assert intent.risk_plan.planned_action == "BUY"
     assert intent.risk_plan.max_risk_dollars == 500.0
     assert any("required source coverage is incomplete" in blocker for blocker in intent.blockers)
 
@@ -299,6 +300,7 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["sentinel_decision_id"] == sentinel.decision_id
     assert packet["risk_plan"]["max_risk_dollars"] == 500.0
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
+    assert packet["risk_plan"]["planned_action"] == "BUY"
     assert packet["sentinel_confirmation"]["price_confirmed"] is True
     assert packet["source_confirmation_weight"] == intent.source_confirmation_weight
     assert packet["source_adjusted_confidence"] == intent.source_adjusted_confidence

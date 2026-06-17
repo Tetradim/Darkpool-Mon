@@ -146,6 +146,18 @@ describe('formatRiskPlanSummary', () => {
       })
     ).toBe('278 shares, stop $178.20, target $183.60, max risk $500.');
   });
+
+  it('includes the planned side when a risk envelope belongs to a blocked candidate', () => {
+    expect(
+      formatRiskPlanSummary({
+        planned_action: 'SELL',
+        estimated_shares: 278,
+        stop_price: 181.8,
+        target_price: 176.4,
+        max_risk_dollars: 500,
+      })
+    ).toBe('SELL plan: 278 shares, stop $181.80, target $176.40, max risk $500.');
+  });
 });
 
 describe('formatConfirmationSummary', () => {
