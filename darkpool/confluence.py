@@ -108,4 +108,3 @@ def score_confluence(
         )
 
     return sorted(scores, key=lambda item: item.score, reverse=True)
-

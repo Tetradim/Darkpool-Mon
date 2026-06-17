@@ -75,4 +75,3 @@ def test_subscription_api_routes():
     delete_response = client.delete(f"/discord/subscriptions/{sub_id}", params={"channel_id": "test-channel"})
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
-

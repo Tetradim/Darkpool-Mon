@@ -31,4 +31,3 @@ def test_cluster_darkpool_levels_groups_nearby_prints_and_scores_strength():
     assert levels[0].total_size == 350_000
     assert levels[0].notional > levels[1].notional
     assert levels[0].strength_score > levels[1].strength_score
-

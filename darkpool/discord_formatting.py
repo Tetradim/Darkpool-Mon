@@ -25,4 +25,3 @@ def summary_to_embed(summary: CommandSummary) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "footer": {"text": "Context only. Require confirmation and risk controls."},
     }
-

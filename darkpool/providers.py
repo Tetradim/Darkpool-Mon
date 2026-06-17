@@ -71,4 +71,3 @@ async def fetch_provider_result(symbol: str | None, provider: str = "demo", limi
         return ProviderResult(provider="finra", records=raw_records[:limit], prints=prints)
 
     raise ProviderError(f"Unsupported provider: {provider}")
-

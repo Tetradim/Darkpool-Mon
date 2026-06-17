@@ -51,4 +51,3 @@ def test_alert_deduplicator_suppresses_repeated_alert_keys():
 
     assert deduper.allow(candidates[0]) is True
     assert deduper.allow(candidates[0]) is False
-

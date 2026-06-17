@@ -128,4 +128,3 @@ def build_watchlist_summary(symbols: list[str], provider: str = "demo") -> Comma
         metrics={"provider": provider, "symbols": ",".join(cleaned)},
         sections=[SummarySection("Watchlist", [f"{symbol}: {text}" for symbol, _, text in rows])],
     )
-

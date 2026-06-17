@@ -22,4 +22,3 @@ def test_options_metric_routes_do_not_import_frontend_modules():
         body = response.json()
         assert "results" in body
         assert isinstance(body["results"], list)
-

@@ -3083,16 +3083,6 @@ async def handle_slash_command(command: SlashCommand):
 
 
 # ============================================================================
-# Main
-# ============================================================================
-
-if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
-# ============================================================================
 # WebSocket Streaming (Phase 2 - Real-time)
 # ============================================================================
 
@@ -3265,6 +3255,7 @@ class AlertRouter:
         
         sender = self.channels[channel]
         success = await sender(alert)
+        now = datetime.now()
         
         self.routing_history.append({
             "alert_id": alert.get("id"),
@@ -3585,4 +3576,15 @@ async def get_server_thresholds(token: str = Query(...)):
     if not user_data:
         raise HTTPException(401, "Invalid token")
     return {"thresholds": alert_processor.get_thresholds(user_data["user_id"])}
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

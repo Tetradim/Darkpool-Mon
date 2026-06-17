@@ -132,4 +132,3 @@ def sample_options_flow(symbol: str) -> list[OptionsFlowSignal]:
 
 def stock_symbols(symbol: str | None = None) -> list[str]:
     return [symbol.upper()] if symbol else list(MAG7_STOCKS)
-

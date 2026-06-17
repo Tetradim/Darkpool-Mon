@@ -89,4 +89,3 @@ class AlertCandidate(BaseModel):
     level_price: float | None = None
     created_at: datetime
     reasons: list[str]
-

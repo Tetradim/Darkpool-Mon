@@ -74,4 +74,3 @@ class AlertDeduplicator:
         self._seen[alert.id] = now
         self._seen = {key: value for key, value in self._seen.items() if now - value < self.window}
         return True
-

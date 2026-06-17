@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import server
@@ -39,3 +41,27 @@ def test_visualization_routes_work_without_external_provider_keys():
     ]:
         response = client.get(path)
         assert response.status_code == 200, f"{path}: {response.text}"
+
+
+def test_documented_python_server_startup_registers_all_routes_before_running_uvicorn():
+    source = Path("server.py").read_text(encoding="utf-8")
+
+    main_block = source.index('if __name__ == "__main__":')
+    last_route_decorator = max(source.rfind("@app."), source.rfind("@app.websocket"))
+
+    assert last_route_decorator < main_block
+
+
+def test_alert_route_records_successful_delivery_history():
+    client = TestClient(server.app)
+    server.alert_router.recent_alerts.clear()
+    server.alert_router.routing_history.clear()
+
+    response = client.post("/alerts/route?symbol=AAPL&alert_type=smoke&channel=discord&size=1")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "sent"}
+    assert server.alert_router.routing_history
+    assert server.alert_router.routing_history[-1]["channel"] == "discord"
+    assert server.alert_router.routing_history[-1]["success"] is True
+    assert server.alert_router.routing_history[-1]["timestamp"]

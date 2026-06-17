@@ -70,4 +70,3 @@ class SubscriptionStore:
 
     def clear(self):
         self._subscriptions.clear()
-

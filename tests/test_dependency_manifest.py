@@ -6,4 +6,3 @@ def test_requirements_include_runtime_auth_dependencies():
 
     assert "pyjwt" in requirements
     assert "email-validator" in requirements or "pydantic[email]" in requirements
-

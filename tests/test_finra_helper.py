@@ -7,4 +7,3 @@ def test_finra_helper_imports_without_annotation_errors():
     assert hasattr(module, "aget_full_data")
     assert hasattr(module, "aget_finra_weeks")
     assert hasattr(module, "aget_finra_data")
-
