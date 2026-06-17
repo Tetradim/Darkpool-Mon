@@ -523,3 +523,13 @@ def test_trade_intent_endpoint_blocks_when_source_confirmation_requirement_is_no
     assert body["sentinel"]["status"] == "rejected"
     assert body["pulse_packet"] is None
     assert any("source confirmation weight" in blocker for blocker in body["intent"]["blockers"])
+
+
+def test_trade_intent_endpoint_rejects_source_confirmation_threshold_above_full_coverage():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_source_confirmation_weight=1.01"
+    )
+
+    assert response.status_code == 422

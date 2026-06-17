@@ -319,7 +319,7 @@ async def get_darkpool_trade_intent(
     max_position_notional: float = Query(50_000.0, ge=0),
     max_quality_caution_flags: int = Query(99, ge=0),
     min_quality_support_flags: int = Query(0, ge=0),
-    min_source_confirmation_weight: float = Query(0.0, ge=0),
+    min_source_confirmation_weight: float = Query(0.0, ge=0, le=1),
     require_source_coverage_complete: bool = Query(True),
     price_confirmed: bool = Query(False),
     liquidity_confirmed: bool = Query(False),

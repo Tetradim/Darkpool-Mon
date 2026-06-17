@@ -30,7 +30,7 @@ class TradingPreferences(BaseModel):
     max_position_notional: float = Field(default=50_000.0, ge=0)
     max_quality_caution_flags: int = Field(default=99, ge=0)
     min_quality_support_flags: int = Field(default=0, ge=0)
-    min_source_confirmation_weight: float = Field(default=0.0, ge=0)
+    min_source_confirmation_weight: float = Field(default=0.0, ge=0, le=1)
     require_complete_source_coverage: bool = True
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])

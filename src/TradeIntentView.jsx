@@ -14,7 +14,7 @@ const NUMBER_FIELDS = [
   ['maxPositionNotional', 'Max Position Notional', '0', '1000'],
   ['maxQualityCautionFlags', 'Max Caution Flags', '0', '1'],
   ['minQualitySupportFlags', 'Min Support Flags', '0', '1'],
-  ['minSourceConfirmationWeight', 'Min Source Weight', '0', '0.05'],
+  ['minSourceConfirmationWeight', 'Min Source Weight', '0', '0.05', '1'],
 ];
 
 const TRADE_TOGGLES = [
@@ -115,12 +115,13 @@ export const TradeIntentView = () => {
           </label>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
-            {NUMBER_FIELDS.map(([key, label, min, step]) => (
+            {NUMBER_FIELDS.map(([key, label, min, step, max]) => (
               <label key={key} className="space-y-1">
                 <span className="text-xs text-gray-400">{label}</span>
                 <input
                   type="number"
                   min={min}
+                  max={max}
                   step={step}
                   value={controls[key]}
                   onChange={(event) => updateControl(key, Number(event.target.value))}

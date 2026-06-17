@@ -28,6 +28,11 @@ const asNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const clampNumber = (value, fallback, min, max) => {
+  const parsed = asNumber(value, fallback);
+  return Math.min(max, Math.max(min, parsed));
+};
+
 export const buildTradeIntentUrl = (settings = {}) => {
   const merged = { ...DEFAULT_TRADE_INTENT_SETTINGS, ...settings };
   const params = new URLSearchParams();
@@ -63,7 +68,7 @@ export const buildTradeIntentUrl = (settings = {}) => {
   );
   params.set(
     'min_source_confirmation_weight',
-    String(asNumber(merged.minSourceConfirmationWeight, DEFAULT_TRADE_INTENT_SETTINGS.minSourceConfirmationWeight))
+    String(clampNumber(merged.minSourceConfirmationWeight, DEFAULT_TRADE_INTENT_SETTINGS.minSourceConfirmationWeight, 0, 1))
   );
   params.set('require_source_coverage_complete', String(Boolean(merged.requireSourceCoverageComplete)));
   params.set('price_confirmed', String(Boolean(merged.priceConfirmed)));
