@@ -193,6 +193,10 @@ def build_trade_confirmation_plan(
             status = "configured"
         elif source.id == "opra_options" and ("livevol" in configured or "intrinio" in configured):
             status = "configured"
+        elif source.id == "trading_halts" and ("nasdaq_halts" in configured or "nyse_halts" in configured):
+            status = "configured"
+        elif source.id == "news_events" and ("sec_edgar" in configured or "news_vendor" in configured):
+            status = "configured"
         sources.append(source.model_copy(update={"status": status}))
 
     confirmation_sources = [source for source in sources if source.confirmation_weight > 0]

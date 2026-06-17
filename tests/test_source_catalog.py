@@ -56,6 +56,25 @@ def test_configured_live_market_data_marks_only_matching_confirmation_roles_met(
     assert plan.required_coverage_complete is False
 
 
+def test_configured_halt_and_edgar_sources_complete_required_confirmation_coverage():
+    plan = build_trade_confirmation_plan(
+        active_provider="demo",
+        configured_providers=["polygon", "nasdaq_halts", "sec_edgar"],
+    )
+    coverage = {item.role: item for item in plan.coverage}
+    by_id = {source.id: source for source in plan.sources}
+
+    assert by_id["trading_halts"].status == "configured"
+    assert by_id["news_events"].status == "configured"
+    assert coverage["price_confirmation"].status == "met"
+    assert coverage["liquidity_confirmation"].status == "met"
+    assert coverage["risk_blocker"].status == "met"
+    assert coverage["news_context"].status == "met"
+    assert coverage["options_confirmation"].status == "missing"
+    assert plan.required_coverage_complete is True
+    assert "required confirmations complete" in plan.summary
+
+
 def test_information_sources_endpoint_does_not_mark_finra_available_for_demo_workflow():
     from fastapi.testclient import TestClient
 
@@ -87,3 +106,15 @@ def test_information_sources_endpoint_marks_finra_available_for_finra_workflow()
     by_id = {source["id"]: source for source in plan["sources"]}
     assert by_id["finra_otc_transparency"]["status"] == "available"
     assert "context source available" in plan["summary"]
+
+
+def test_configured_market_providers_include_halt_and_edgar_adapters_from_environment(monkeypatch):
+    from routes.darkpool_routes import configured_market_providers
+
+    monkeypatch.setenv("NASDAQ_HALTS_RSS_ENABLED", "true")
+    monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "darkpool-mon test@example.com")
+
+    configured = configured_market_providers("demo")
+
+    assert "nasdaq_halts" in configured
+    assert "sec_edgar" in configured

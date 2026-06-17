@@ -428,6 +428,26 @@ def test_trade_intent_endpoint_defaults_to_blocking_pulse_until_required_source_
     ]
 
 
+def test_trade_intent_endpoint_clears_source_coverage_block_when_required_adapters_are_configured(monkeypatch):
+    client = TestClient(server.app)
+    monkeypatch.setenv("POLYGON_API_KEY", "test-polygon")
+    monkeypatch.setenv("NASDAQ_HALTS_RSS_ENABLED", "true")
+    monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "darkpool-mon test@example.com")
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=20"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["confirmation_sources"]["required_coverage_complete"] is True
+    assert body["intent"]["missing_required_source_coverage"] == []
+    assert body["pulse_status"]["status"] == "prepared"
+    assert body["pulse_packet"]["requires_manual_execution"] is True
+
+
 def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
     client = TestClient(server.app)
 

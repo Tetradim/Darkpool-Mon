@@ -39,6 +39,10 @@ def configured_market_providers(active_provider: str) -> list[str]:
         configured.add("polygon")
     if os.getenv("INTRINIO_API_KEY"):
         configured.add("intrinio")
+    if os.getenv("NASDAQ_HALTS_RSS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+        configured.add("nasdaq_halts")
+    if os.getenv("SEC_EDGAR_USER_AGENT"):
+        configured.add("sec_edgar")
     return sorted(configured)
 
 
