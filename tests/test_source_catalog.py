@@ -27,6 +27,35 @@ def test_trade_confirmation_plan_separates_available_context_from_missing_confir
     assert "context source available" in plan.summary
 
 
+def test_trade_confirmation_plan_reports_role_level_confirmation_coverage():
+    plan = build_trade_confirmation_plan(active_provider="finra", configured_providers=["finra"])
+    coverage = {item.role: item for item in plan.coverage}
+
+    assert coverage["darkpool_context"].status == "met"
+    assert coverage["price_confirmation"].status == "missing"
+    assert coverage["liquidity_confirmation"].status == "missing"
+    assert coverage["risk_blocker"].status == "missing"
+    assert coverage["news_context"].status == "missing"
+    assert coverage["options_confirmation"].required is False
+    assert plan.required_coverage_complete is False
+    assert "sip_nbbo" in coverage["price_confirmation"].missing_source_ids
+
+
+def test_configured_live_market_data_marks_only_matching_confirmation_roles_met():
+    plan = build_trade_confirmation_plan(
+        active_provider="demo",
+        configured_providers=["polygon", "intrinio"],
+    )
+    coverage = {item.role: item for item in plan.coverage}
+
+    assert coverage["price_confirmation"].status == "met"
+    assert coverage["liquidity_confirmation"].status == "met"
+    assert coverage["options_confirmation"].status == "met"
+    assert coverage["risk_blocker"].status == "missing"
+    assert coverage["news_context"].status == "missing"
+    assert plan.required_coverage_complete is False
+
+
 def test_information_sources_endpoint_does_not_mark_finra_available_for_demo_workflow():
     from fastapi.testclient import TestClient
 
@@ -40,6 +69,9 @@ def test_information_sources_endpoint_does_not_mark_finra_available_for_demo_wor
     by_id = {source["id"]: source for source in plan["sources"]}
     assert by_id["finra_otc_transparency"]["status"] == "missing"
     assert "no darkpool context source available" in plan["summary"]
+    coverage = {item["role"]: item for item in plan["coverage"]}
+    assert coverage["price_confirmation"]["status"] == "missing"
+    assert plan["required_coverage_complete"] is False
 
 
 def test_information_sources_endpoint_marks_finra_available_for_finra_workflow():

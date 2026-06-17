@@ -18,6 +18,7 @@ SourceRole = Literal[
 SourceCadence = Literal["real_time", "delayed", "historical", "on_demand"]
 SourcePriority = Literal["required", "strong", "context"]
 SourceStatus = Literal["available", "configured", "missing"]
+CoverageStatus = Literal["met", "partial", "missing"]
 
 
 class MarketInformationSource(BaseModel):
@@ -37,10 +38,48 @@ class MarketInformationSource(BaseModel):
 
 class TradeConfirmationPlan(BaseModel):
     sources: list[MarketInformationSource]
+    coverage: list["ConfirmationCoverage"]
     available_confirmation_weight: float
     missing_confirmation_weight: float
+    required_coverage_complete: bool
     recommended_next_sources: list[str]
     summary: str
+
+
+class ConfirmationCoverage(BaseModel):
+    role: SourceRole
+    label: str
+    required: bool
+    status: CoverageStatus
+    configured_source_ids: list[str]
+    missing_source_ids: list[str]
+    explanation: str
+
+
+ROLE_LABELS: dict[SourceRole, str] = {
+    "darkpool_context": "Dark pool context",
+    "price_confirmation": "Real-time price/NBBO confirmation",
+    "liquidity_confirmation": "Liquidity and depth confirmation",
+    "options_confirmation": "Options flow confirmation",
+    "risk_blocker": "Trading halt/LULD blocker",
+    "news_context": "Material news context",
+}
+
+REQUIRED_CONFIRMATION_ROLES: set[SourceRole] = {
+    "price_confirmation",
+    "liquidity_confirmation",
+    "risk_blocker",
+    "news_context",
+}
+
+COVERAGE_ROLE_ORDER: list[SourceRole] = [
+    "darkpool_context",
+    "price_confirmation",
+    "liquidity_confirmation",
+    "options_confirmation",
+    "risk_blocker",
+    "news_context",
+]
 
 
 def list_market_information_sources() -> list[MarketInformationSource]:
@@ -79,9 +118,9 @@ def list_market_information_sources() -> list[MarketInformationSource]:
             cadence="real_time",
             priority="required",
             confirmation_weight=0.35,
-            official_url="https://www.nyse.com/market-data/historical/daily-taq",
+            official_url="https://www.ctaplan.com/index",
             confirms=["last sale", "NBBO spread", "price acceptance near level"],
-            limitations=["requires licensed real-time or historical market data access"],
+            limitations=["requires licensed real-time CTA/UTP SIP or equivalent vendor access"],
             current_integration="missing adapter",
         ),
         MarketInformationSource(
@@ -105,7 +144,7 @@ def list_market_information_sources() -> list[MarketInformationSource]:
             cadence="real_time",
             priority="strong",
             confirmation_weight=0.25,
-            official_url="https://api.livevol.com/",
+            official_url="https://www.opraplan.com/",
             confirms=["options trades", "options quotes", "implied volatility and flow alignment"],
             limitations=["requires licensed options data and normalization"],
             current_integration="demo fixtures only",
@@ -131,7 +170,7 @@ def list_market_information_sources() -> list[MarketInformationSource]:
             cadence="real_time",
             priority="required",
             confirmation_weight=0.15,
-            official_url="https://www.sec.gov/edgar/search/",
+            official_url="https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
             confirms=["material filings", "news-pending risk", "event context"],
             limitations=["needs vendor-specific relevance scoring before automated gating"],
             current_integration="manual Sentinel checkbox only",
@@ -166,20 +205,73 @@ def build_trade_confirmation_plan(
         2,
     )
     recommendations = _build_recommendations(sources)
+    coverage = _build_coverage(sources)
+    required_coverage_complete = all(item.status == "met" for item in coverage if item.required)
     context_available = any(
         source.role == "darkpool_context" and source.status in {"available", "configured"} for source in sources
     )
+    missing_required = [item.role for item in coverage if item.required and item.status != "met"]
     summary = (
         f"{'context source available' if context_available else 'no darkpool context source available'}; "
-        f"{available_weight:.2f} confirmation weight configured, {missing_weight:.2f} missing."
+        f"{available_weight:.2f} confirmation weight configured, {missing_weight:.2f} missing; "
+        f"{'required confirmations complete' if not missing_required else 'missing required confirmations: ' + ', '.join(missing_required)}."
     )
     return TradeConfirmationPlan(
         sources=sources,
+        coverage=coverage,
         available_confirmation_weight=available_weight,
         missing_confirmation_weight=missing_weight,
+        required_coverage_complete=required_coverage_complete,
         recommended_next_sources=recommendations,
         summary=summary,
     )
+
+
+def _is_actionable_confirmation_source(source: MarketInformationSource) -> bool:
+    if source.status not in {"available", "configured"}:
+        return False
+    if source.role == "darkpool_context":
+        return True
+    return source.cadence == "real_time" and source.priority in {"required", "strong"}
+
+
+def _build_coverage(sources: list[MarketInformationSource]) -> list[ConfirmationCoverage]:
+    coverage: list[ConfirmationCoverage] = []
+    for role in COVERAGE_ROLE_ORDER:
+        role_sources = [source for source in sources if source.role == role]
+        active_sources = [source for source in role_sources if source.status in {"available", "configured"}]
+        actionable_sources = [source for source in role_sources if _is_actionable_confirmation_source(source)]
+        missing_sources = [source for source in role_sources if source.status == "missing"]
+
+        if actionable_sources:
+            status: CoverageStatus = "met"
+        elif active_sources:
+            status = "partial"
+        else:
+            status = "missing"
+
+        label = ROLE_LABELS[role]
+        configured_ids = [source.id for source in active_sources]
+        missing_ids = [source.id for source in missing_sources]
+        if status == "met":
+            explanation = f"{label} covered by {', '.join(source.name for source in actionable_sources)}."
+        elif status == "partial":
+            explanation = f"{label} has only delayed or context coverage; real-time confirmation is still needed."
+        else:
+            explanation = f"{label} is missing; configure {', '.join(source.name for source in role_sources)}."
+
+        coverage.append(
+            ConfirmationCoverage(
+                role=role,
+                label=label,
+                required=role in REQUIRED_CONFIRMATION_ROLES,
+                status=status,
+                configured_source_ids=configured_ids,
+                missing_source_ids=missing_ids,
+                explanation=explanation,
+            )
+        )
+    return coverage
 
 
 def _build_recommendations(sources: list[MarketInformationSource]) -> list[str]:

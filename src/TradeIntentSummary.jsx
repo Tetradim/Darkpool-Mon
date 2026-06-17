@@ -6,6 +6,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatSourceCoverage,
   formatSourceAdjustedConfidence,
   formatSourceConfirmationPlan,
   summarizePulsePacket,
@@ -93,6 +94,13 @@ export const TradeIntentSummary = ({
         {confirmationSources?.summary && (
           <p className="text-sm text-gray-200 mb-3">{confirmationSources.summary}</p>
         )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-3">
+          {formatSourceCoverage(confirmationSources?.coverage).map((line) => (
+            <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
+              {line}
+            </div>
+          ))}
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
           {formatSourceConfirmationPlan(confirmationSources).map((line) => (
             <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">

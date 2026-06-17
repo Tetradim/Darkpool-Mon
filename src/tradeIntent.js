@@ -125,6 +125,18 @@ export const formatSourceConfirmationPlan = (plan) => {
   });
 };
 
+export const formatSourceCoverage = (coverage) => {
+  if (!Array.isArray(coverage) || coverage.length === 0) {
+    return ['Source coverage unavailable.'];
+  }
+  return coverage.map((item) => {
+    const status = String(item.status || 'missing').toUpperCase();
+    const required = item.required ? ' REQUIRED' : '';
+    const label = item.label || item.role || 'Source coverage';
+    return `${status}${required} ${label} - ${item.explanation}`;
+  });
+};
+
 export const formatSourceAdjustedConfidence = (intent) => {
   if (!intent) {
     return 'Source-adjusted confidence unavailable.';

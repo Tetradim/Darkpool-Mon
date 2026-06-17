@@ -7,6 +7,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatSourceCoverage,
   formatSourceConfirmationPlan,
   formatSourceAdjustedConfidence,
   formatIntentMoney,
@@ -209,6 +210,28 @@ describe('formatSourceConfirmationPlan', () => {
         ],
       })
     ).toEqual(['MISSING REQUIRED SIP/NBBO feed - price_confirmation']);
+  });
+});
+
+describe('formatSourceCoverage', () => {
+  it('summarizes missing source coverage as unavailable', () => {
+    expect(formatSourceCoverage(null)).toEqual(['Source coverage unavailable.']);
+  });
+
+  it('formats role-level coverage for operator scanning', () => {
+    expect(
+      formatSourceCoverage([
+        {
+          role: 'price_confirmation',
+          label: 'Real-time price/NBBO confirmation',
+          required: true,
+          status: 'missing',
+          explanation: 'Real-time price/NBBO confirmation is missing; configure SIP/NBBO feed.',
+        },
+      ])
+    ).toEqual([
+      'MISSING REQUIRED Real-time price/NBBO confirmation - Real-time price/NBBO confirmation is missing; configure SIP/NBBO feed.',
+    ]);
   });
 });
 

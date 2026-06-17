@@ -27,6 +27,7 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Sentinel Checklist" in trade_intent_summary
     assert "formatSourceConfirmationPlan" in trade_intent_summary
     assert "Source Confirmation Plan" in trade_intent_summary
+    assert "formatSourceCoverage" in trade_intent_summary
     assert "formatSourceAdjustedConfidence" in trade_intent_summary
     assert "Source-Adjusted" in trade_intent_summary
     assert "pulse_status" in trade_intent_view
