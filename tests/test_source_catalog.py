@@ -27,6 +27,19 @@ def test_trade_confirmation_plan_separates_available_context_from_missing_confir
     assert "context source available" in plan.summary
 
 
+def test_trade_confirmation_plan_recommends_required_halt_and_news_sources():
+    plan = build_trade_confirmation_plan(active_provider="finra", configured_providers=["finra"])
+
+    assert any(
+        "Nasdaq Trade Halt RSS" in recommendation and "halt/LULD" in recommendation
+        for recommendation in plan.recommended_next_sources
+    )
+    assert any(
+        "SEC EDGAR" in recommendation and "material-news" in recommendation
+        for recommendation in plan.recommended_next_sources
+    )
+
+
 def test_trade_confirmation_plan_reports_role_level_confirmation_coverage():
     plan = build_trade_confirmation_plan(active_provider="finra", configured_providers=["finra"])
     coverage = {item.role: item for item in plan.coverage}

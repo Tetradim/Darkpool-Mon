@@ -281,7 +281,11 @@ def _build_recommendations(sources: list[MarketInformationSource]) -> list[str]:
     if "sip_nbbo" in missing:
         recommendations.append("Add real-time price/NBBO feed for spread and price confirmation.")
     if "trading_halts" in missing:
-        recommendations.append("Add trading halt/LULD feed before treating Sentinel approval as execution-ready.")
+        recommendations.append(
+            "Add Nasdaq Trade Halt RSS or exchange halt feed for halt/LULD confirmation before Pulse review."
+        )
+    if "news_events" in missing:
+        recommendations.append("Configure SEC EDGAR or a licensed news vendor for material-news confirmation.")
     if "opra_options" in missing:
         recommendations.append("Add OPRA or Cboe LiveVol options data for options-flow confirmation.")
     if "nasdaq_totalview" in missing:
