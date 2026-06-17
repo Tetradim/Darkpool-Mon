@@ -273,6 +273,7 @@ def test_trade_intent_risk_plan_uses_share_rounded_notional_and_entry_stop_loss(
     )
 
     assert intent.risk_plan is not None
+    assert intent.risk_plan.entry_price == 179.4
     assert intent.risk_plan.estimated_shares == 278
     assert intent.risk_plan.position_notional == 49873.2
     assert intent.risk_plan.estimated_loss_dollars == 333.6
@@ -322,6 +323,7 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["risk_plan"]["max_risk_dollars"] == 500.0
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
     assert packet["risk_plan"]["planned_action"] == "BUY"
+    assert packet["risk_plan"]["entry_price"] == 179.4
     assert packet["sentinel_confirmation"]["price_confirmed"] is True
     assert packet["source_confirmation_weight"] == intent.source_confirmation_weight
     assert packet["source_adjusted_confidence"] == intent.source_adjusted_confidence
