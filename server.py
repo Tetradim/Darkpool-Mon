@@ -30,6 +30,7 @@ from darkpool.providers import ProviderError, fetch_provider_result
 from darkpool.subscriptions import SubscriptionStore
 from darkpool.trade_intent import (
     LocalSentinelEdgeAdapter,
+    SentinelConfirmation,
     TradingPreferences,
     build_trade_intent,
     prepare_pulse_packet,
@@ -684,6 +685,11 @@ async def get_darkpool_trade_intent(
     stop_distance_pct: float = Query(1.0, ge=0, le=20),
     reward_risk_ratio: float = Query(2.0, ge=0),
     max_position_notional: float = Query(50_000.0, ge=0),
+    price_confirmed: bool = Query(False),
+    liquidity_confirmed: bool = Query(False),
+    news_checked: bool = Query(False),
+    observed_spread_bps: float = Query(0.0, ge=0),
+    max_spread_bps: float = Query(25.0, ge=0),
     allow_buy: bool = Query(True),
     allow_sell: bool = Query(True),
     include_pulse_packet: bool = Query(False),
@@ -709,6 +715,13 @@ async def get_darkpool_trade_intent(
         max_position_notional=max_position_notional,
         allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
     )
+    confirmation = SentinelConfirmation(
+        price_confirmed=price_confirmed,
+        liquidity_confirmed=liquidity_confirmed,
+        news_checked=news_checked,
+        observed_spread_bps=observed_spread_bps,
+        max_spread_bps=max_spread_bps,
+    )
 
     if not scores:
         return {
@@ -724,7 +737,7 @@ async def get_darkpool_trade_intent(
         }
 
     intent = build_trade_intent(scores[0], preferences)
-    sentinel = LocalSentinelEdgeAdapter().review(intent)
+    sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None
     if include_pulse_packet and sentinel.status == "approved":
         pulse_packet = prepare_pulse_packet(intent, sentinel)

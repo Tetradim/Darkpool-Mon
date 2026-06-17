@@ -99,7 +99,7 @@ Dark pool intelligence:
 - `GET /darkpool/levels?symbol=AAPL&provider=demo`
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
-- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000`
+- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
 
 Scanner and visualization:
 
@@ -160,16 +160,16 @@ Discord integration:
 
 `GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, and max position notional.
 
-The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, allowed buy/sell sides, and Pulse packet inclusion.
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, allowed buy/sell sides, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion.
 
 The endpoint returns:
 
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
-- `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold.
+- `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
 - `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent.
 
-Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading.
+Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld.
 
 ## Testing
 

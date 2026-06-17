@@ -9,6 +9,11 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   stopDistancePct: 1,
   rewardRiskRatio: 2,
   maxPositionNotional: 50000,
+  priceConfirmed: false,
+  liquidityConfirmed: false,
+  newsChecked: false,
+  observedSpreadBps: 0,
+  maxSpreadBps: 25,
   allowBuy: true,
   allowSell: true,
   includePulsePacket: true,
@@ -44,6 +49,14 @@ export const buildTradeIntentUrl = (settings = {}) => {
     'max_position_notional',
     String(asNumber(merged.maxPositionNotional, DEFAULT_TRADE_INTENT_SETTINGS.maxPositionNotional))
   );
+  params.set('price_confirmed', String(Boolean(merged.priceConfirmed)));
+  params.set('liquidity_confirmed', String(Boolean(merged.liquidityConfirmed)));
+  params.set('news_checked', String(Boolean(merged.newsChecked)));
+  params.set(
+    'observed_spread_bps',
+    String(asNumber(merged.observedSpreadBps, DEFAULT_TRADE_INTENT_SETTINGS.observedSpreadBps))
+  );
+  params.set('max_spread_bps', String(asNumber(merged.maxSpreadBps, DEFAULT_TRADE_INTENT_SETTINGS.maxSpreadBps)));
   params.set('allow_buy', String(Boolean(merged.allowBuy)));
   params.set('allow_sell', String(Boolean(merged.allowSell)));
   params.set('include_pulse_packet', String(Boolean(merged.includePulsePacket)));
@@ -104,6 +117,18 @@ export const formatRiskPlanSummary = (riskPlan) => {
   return `${riskPlan.estimated_shares} shares, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
     riskPlan.target_price
   ).toFixed(2)}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
+};
+
+export const formatConfirmationSummary = (confirmation) => {
+  if (!confirmation) {
+    return 'Sentinel confirmation incomplete.';
+  }
+  const price = confirmation.price_confirmed ? 'Price confirmed' : 'Price unconfirmed';
+  const liquidity = confirmation.liquidity_confirmed ? 'liquidity confirmed' : 'liquidity unconfirmed';
+  const news = confirmation.news_checked ? 'news checked' : 'news unchecked';
+  return `${price}, ${liquidity}, ${news}, spread ${Number(confirmation.observed_spread_bps).toFixed(0)}/${Number(
+    confirmation.max_spread_bps
+  ).toFixed(0)} bps.`;
 };
 
 export const formatIntentMoney = (value) => {

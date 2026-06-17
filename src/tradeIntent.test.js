@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildTradeIntentUrl,
+  formatConfirmationSummary,
   formatRiskPlanSummary,
   formatIntentMoney,
   getIntentTone,
@@ -21,13 +22,18 @@ describe('buildTradeIntentUrl', () => {
       stopDistancePct: 1.2,
       rewardRiskRatio: 2.5,
       maxPositionNotional: 40000,
+      priceConfirmed: true,
+      liquidityConfirmed: false,
+      newsChecked: true,
+      observedSpreadBps: 7,
+      maxSpreadBps: 18,
       allowBuy: true,
       allowSell: false,
       includePulsePacket: true,
     });
 
     expect(url).toBe(
-      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&allow_buy=true&allow_sell=false&include_pulse_packet=true'
+      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
     );
   });
 });
@@ -79,6 +85,24 @@ describe('formatRiskPlanSummary', () => {
         max_risk_dollars: 500,
       })
     ).toBe('278 shares, stop $178.20, target $183.60, max risk $500.');
+  });
+});
+
+describe('formatConfirmationSummary', () => {
+  it('summarizes missing confirmation state as incomplete', () => {
+    expect(formatConfirmationSummary(null)).toBe('Sentinel confirmation incomplete.');
+  });
+
+  it('summarizes confirmed price, liquidity, news, and spread state', () => {
+    expect(
+      formatConfirmationSummary({
+        price_confirmed: true,
+        liquidity_confirmed: true,
+        news_checked: true,
+        observed_spread_bps: 7,
+        max_spread_bps: 18,
+      })
+    ).toBe('Price confirmed, liquidity confirmed, news checked, spread 7/18 bps.');
   });
 });
 

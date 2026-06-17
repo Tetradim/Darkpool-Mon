@@ -7,6 +7,7 @@ import server
 from darkpool.models import ConfluenceScore, DarkpoolLevel
 from darkpool.trade_intent import (
     LocalSentinelEdgeAdapter,
+    SentinelConfirmation,
     TradingPreferences,
     build_trade_intent,
     prepare_pulse_packet,
@@ -75,7 +76,14 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
         max_position_notional=100_000,
     )
     intent = build_trade_intent(_score(), preferences)
-    sentinel = LocalSentinelEdgeAdapter().review(intent)
+    confirmation = SentinelConfirmation(
+        price_confirmed=True,
+        liquidity_confirmed=True,
+        news_checked=True,
+        observed_spread_bps=6,
+        max_spread_bps=25,
+    )
+    sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
 
     assert intent.status == "ready_for_sentinel"
     assert intent.action == "BUY"
@@ -91,6 +99,44 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["sentinel_decision_id"] == sentinel.decision_id
     assert packet["risk_plan"]["max_risk_dollars"] == 500.0
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
+    assert packet["sentinel_confirmation"]["price_confirmed"] is True
+
+
+def test_sentinel_rejects_ready_intent_without_required_confirmations():
+    preferences = TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000)
+    intent = build_trade_intent(_score(), preferences)
+    confirmation = SentinelConfirmation(
+        price_confirmed=False,
+        liquidity_confirmed=True,
+        news_checked=True,
+        observed_spread_bps=4,
+        max_spread_bps=20,
+    )
+
+    sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
+
+    assert intent.status == "ready_for_sentinel"
+    assert sentinel.status == "rejected"
+    assert any("price confirmation" in reason for reason in sentinel.reasons)
+    with pytest.raises(ValueError, match="Sentinel Edge approval is required"):
+        prepare_pulse_packet(intent, sentinel)
+
+
+def test_sentinel_rejects_when_observed_spread_is_too_wide():
+    preferences = TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000)
+    intent = build_trade_intent(_score(), preferences)
+    confirmation = SentinelConfirmation(
+        price_confirmed=True,
+        liquidity_confirmed=True,
+        news_checked=True,
+        observed_spread_bps=35,
+        max_spread_bps=20,
+    )
+
+    sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
+
+    assert sentinel.status == "rejected"
+    assert any("spread" in reason for reason in sentinel.reasons)
 
 
 def test_trade_intent_blocks_when_risk_controls_are_invalid():
@@ -103,7 +149,10 @@ def test_trade_intent_blocks_when_risk_controls_are_invalid():
     )
 
     intent = build_trade_intent(_score(), preferences)
-    sentinel = LocalSentinelEdgeAdapter().review(intent)
+    sentinel = LocalSentinelEdgeAdapter().review(
+        intent,
+        SentinelConfirmation(price_confirmed=True, liquidity_confirmed=True, news_checked=True),
+    )
 
     assert intent.status == "blocked"
     assert intent.action == "HOLD"
@@ -130,6 +179,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
         "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
         "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
         "&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=20"
     )
 
     assert response.status_code == 200, response.text
@@ -143,5 +193,22 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
         assert body["pulse_packet"]["requires_manual_execution"] is True
         assert body["intent"]["risk_plan"]["max_risk_dollars"] == 750.0
         assert body["pulse_packet"]["risk_plan"]["max_position_notional"] == 40000.0
+        assert body["sentinel"]["confirmation"]["observed_spread_bps"] == 5.0
     else:
         assert body["pulse_packet"] is None
+
+
+def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&price_confirmed=false&liquidity_confirmed=true&news_checked=true"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["sentinel"]["status"] == "rejected"
+    assert body["pulse_packet"] is None
+    assert any("price confirmation" in reason for reason in body["sentinel"]["reasons"])

@@ -3,6 +3,7 @@ import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircl
 import {
   DEFAULT_TRADE_INTENT_SETTINGS,
   buildTradeIntentUrl,
+  formatConfirmationSummary,
   formatIntentMoney,
   formatRiskPlanSummary,
   getIntentTone,
@@ -498,6 +499,53 @@ const TradeIntentView = () => {
             ))}
           </div>
 
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['priceConfirmed', 'Price'],
+              ['liquidityConfirmed', 'Liquidity'],
+              ['newsChecked', 'News'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => updateControl(key, !controls[key])}
+                className={`px-3 py-2 rounded-lg border text-sm transition-all ${
+                  controls[key]
+                    ? 'border-green-500/40 bg-green-500/15 text-green-200'
+                    : 'border-dark-600 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Observed Spread Bps</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={controls.observedSpreadBps}
+                onChange={(event) => updateControl('observedSpreadBps', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Spread Bps</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={controls.maxSpreadBps}
+                onChange={(event) => updateControl('maxSpreadBps', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+          </div>
+
           <button
             type="button"
             onClick={fetchIntent}
@@ -601,6 +649,7 @@ const TradeIntentView = () => {
 
                 <div className="bg-dark-700 rounded-lg p-4">
                   <div className="text-xs text-gray-500 mb-2">Sentinel Edge</div>
+                  <p className="text-sm text-gray-200 mb-2">{formatConfirmationSummary(sentinel?.confirmation)}</p>
                   <p className="text-sm text-gray-200">{sentinel?.reasons?.join(' ') || 'No Sentinel decision.'}</p>
                 </div>
               </div>

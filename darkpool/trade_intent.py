@@ -44,6 +44,14 @@ class RiskPlan(BaseModel):
     notes: list[str]
 
 
+class SentinelConfirmation(BaseModel):
+    price_confirmed: bool = False
+    liquidity_confirmed: bool = False
+    news_checked: bool = False
+    observed_spread_bps: float = Field(default=0.0, ge=0)
+    max_spread_bps: float = Field(default=25.0, ge=0)
+
+
 class TradeIntent(BaseModel):
     id: str
     symbol: str
@@ -67,10 +75,11 @@ class SentinelDecision(BaseModel):
     reviewer: str = "local_sentinel_edge"
     reviewed_at: datetime
     reasons: list[str]
+    confirmation: SentinelConfirmation | None = None
 
 
 class SentinelEdgeAdapter(Protocol):
-    def review(self, intent: TradeIntent) -> SentinelDecision:
+    def review(self, intent: TradeIntent, confirmation: SentinelConfirmation | None = None) -> SentinelDecision:
         """Review a trade intent before Pulse communication."""
 
 
@@ -198,22 +207,48 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
 class LocalSentinelEdgeAdapter:
     """Local confirmation adapter used until a concrete Sentinel Edge API exists."""
 
-    def review(self, intent: TradeIntent) -> SentinelDecision:
+    def review(self, intent: TradeIntent, confirmation: SentinelConfirmation | None = None) -> SentinelDecision:
+        confirmation = confirmation or SentinelConfirmation()
         if intent.status != "ready_for_sentinel":
             return SentinelDecision(
                 decision_id=f"sentinel:{intent.id}:{_stable_id(intent.id, 'rejected')}",
                 status="rejected",
                 reviewed_at=datetime.now(timezone.utc),
                 reasons=intent.blockers or ["intent is not ready for Sentinel Edge approval"],
+                confirmation=confirmation,
             )
+
+        rejection_reasons: list[str] = []
+        if not confirmation.price_confirmed:
+            rejection_reasons.append("price confirmation required before Pulse")
+        if not confirmation.liquidity_confirmed:
+            rejection_reasons.append("liquidity confirmation required before Pulse")
+        if not confirmation.news_checked:
+            rejection_reasons.append("news check required before Pulse")
+        if confirmation.observed_spread_bps > confirmation.max_spread_bps:
+            rejection_reasons.append(
+                f"spread {confirmation.observed_spread_bps:.1f} bps exceeds max {confirmation.max_spread_bps:.1f} bps"
+            )
+        if rejection_reasons:
+            return SentinelDecision(
+                decision_id=f"sentinel:{intent.id}:{_stable_id(intent.id, 'confirmation-rejected')}",
+                status="rejected",
+                reviewed_at=datetime.now(timezone.utc),
+                reasons=rejection_reasons,
+                confirmation=confirmation,
+            )
+
         return SentinelDecision(
             decision_id=f"sentinel:{intent.id}:{_stable_id(intent.id, 'approved')}",
             status="approved",
             reviewed_at=datetime.now(timezone.utc),
             reasons=[
                 "intent passed user thresholds",
+                "price, liquidity, and news confirmations complete",
+                f"spread {confirmation.observed_spread_bps:.1f} bps is within {confirmation.max_spread_bps:.1f} bps max",
                 "Pulse packet may be prepared for manual execution review",
             ],
+            confirmation=confirmation,
         )
 
 
@@ -232,6 +267,9 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "distance_pct": intent.distance_pct,
         "notional": intent.notional,
         "sentinel_decision_id": sentinel_decision.decision_id,
+        "sentinel_confirmation": sentinel_decision.confirmation.model_dump(mode="json")
+        if sentinel_decision.confirmation
+        else None,
         "requires_manual_execution": True,
         "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
