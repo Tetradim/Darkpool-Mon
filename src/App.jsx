@@ -6,7 +6,7 @@ import {
 import {
   Activity, TrendingUp, TrendingDown, Pause, Play, Filter,
   DollarSign, Clock, BarChart3, PieChart, Zap, RefreshCw, Bell,
-  Download, AlertTriangle
+  Download, AlertTriangle, Settings
 } from 'lucide-react';
 import {
   MAG7_STOCKS,
@@ -17,8 +17,13 @@ import {
   formatMillionsCurrency,
   formatVolume
 } from './dataGenerator';
+import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
+import SettingsModal from './SettingsModal';
+import OptionsDashboard from './OptionsDashboard';
+import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
+import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
 
-const STORAGE_KEY = 'darkpool-monitor-settings-v2';
+const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
 
 const exportTransactionsToCsv = (rows) => {
@@ -57,10 +62,47 @@ const computeZScore = (values, nextValue) => {
   return (nextValue - mean) / stdDev;
 };
 
-const StockCard = ({ stock, data, isActive, onClick }) => {
+const readPersistedSettings = () => {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const persisted = localStorage.getItem(STORAGE_KEY);
+    if (!persisted) return {};
+    const parsed = JSON.parse(persisted);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.debug('Ignoring invalid persisted dashboard settings', error);
+    return {};
+  }
+};
+
+const writePersistedSettings = (settings) => {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch (error) {
+    console.debug('Unable to persist dashboard settings', error);
+  }
+};
+
+const createInitialStockPrices = () => (
+  Object.fromEntries(
+    Object.entries(MAG7_STOCKS).map(([symbol, stock]) => [symbol, { ...stock }])
+  )
+);
+
+const createInitialChartData = (timeframe) => (
+  Object.fromEntries(
+    Object.keys(MAG7_STOCKS).map((symbol) => [
+      symbol,
+      generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe]),
+    ])
+  )
+);
+
+const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
   const latestData = data[data.length - 1] || { buyVolume: 0, sellVolume: 0 };
   const totalVolume = latestData.totalVolume || 0;
-  const intensity = Math.min(totalVolume / 25, 1);
+  const intensity = Math.min(totalVolume / threshold, 1);
 
   const priceChange = data.length > 1
     ? ((data[data.length - 1].price - data[0].price) / data[0].price * 100)
@@ -106,7 +148,7 @@ const StockCard = ({ stock, data, isActive, onClick }) => {
               ${stock.basePrice.toFixed(2)}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              Vol: {formatVolume(totalVolume)}
+              Vol: {formatVolume(totalVolume)} @ {threshold}K
             </p>
           </div>
 
@@ -191,40 +233,40 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState('ALL');
+  const [viewMode, setViewMode] = useState('dashboard'); // dashboard, scanner, flowmap, alerts, watchlist, replay, admin, health
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
+  const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
+  const [settings, setSettings] = useState(() => {
+    return { ...DEFAULT_SETTINGS, ...readPersistedSettings() };
+  });
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [feedSort, setFeedSort] = useState('LATEST');
   const [chartData, setChartData] = useState({});
-  const [stockPrices, setStockPrices] = useState(MAG7_STOCKS);
+  const [stockPrices, setStockPrices] = useState(() => createInitialStockPrices());
   const [newTransactionId, setNewTransactionId] = useState(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const feedRef = useRef(null);
+  const lastAlertedTransactionId = useRef(null);
 
   useEffect(() => {
-    const persisted = localStorage.getItem(STORAGE_KEY);
-    if (persisted) {
-      const settings = JSON.parse(persisted);
+    const settings = readPersistedSettings();
+    if (Object.keys(settings).length > 0) {
       setSelectedStock(settings.selectedStock || 'ALL');
       setTimeframe(settings.timeframe || '1H');
       setThreshold(settings.threshold || 1);
+      setWhaleThreshold(settings.whaleThreshold || 50);
       setFeedSort(settings.feedSort || 'LATEST');
       setIsRunning(typeof settings.isRunning === 'boolean' ? settings.isRunning : true);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ selectedStock, timeframe, threshold, feedSort, isRunning })
-    );
-  }, [selectedStock, timeframe, threshold, feedSort, isRunning]);
+    writePersistedSettings({ selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning });
+  }, [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
 
   useEffect(() => {
-    const initialData = {};
-    Object.keys(MAG7_STOCKS).forEach((symbol) => {
-      initialData[symbol] = generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe]);
-    });
-    setChartData(initialData);
+    setChartData(createInitialChartData(timeframe));
   }, [timeframe]);
 
   useEffect(() => {
@@ -243,25 +285,6 @@ export default function App() {
       setTimeout(() => setNewTransactionId(null), 1000);
 
       setTransactions((prev) => {
-        const symbolSizes = prev.filter((txn) => txn.symbol === transaction.symbol).slice(0, 25).map((txn) => txn.size);
-        const zScore = computeZScore(symbolSizes, transaction.size);
-        const isWhale = transaction.size >= 25;
-
-        if (isWhale || zScore >= 2.2) {
-          const reason = isWhale ? `Whale print ${transaction.size.toFixed(2)}M` : `Unusual size z-score ${zScore.toFixed(2)}`;
-          setAlerts((prevAlerts) => [
-            {
-              id: `${transaction.id}-ALERT`,
-              symbol: transaction.symbol,
-              direction: transaction.direction,
-              size: transaction.size,
-              reason,
-              timestamp: new Date(),
-            },
-            ...prevAlerts,
-          ].slice(0, 25));
-        }
-
         return [transaction, ...prev].slice(0, 200);
       });
 
@@ -296,6 +319,39 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
+  useEffect(() => {
+    const transaction = transactions[0];
+    if (!transaction || transaction.id === lastAlertedTransactionId.current) return;
+
+    lastAlertedTransactionId.current = transaction.id;
+    const symbolSizes = transactions
+      .slice(1)
+      .filter((txn) => txn.symbol === transaction.symbol)
+      .slice(0, 25)
+      .map((txn) => txn.size);
+    const zScore = computeZScore(symbolSizes, transaction.size);
+    const isWhale = transaction.size >= whaleThreshold * 1000; // Convert to actual shares
+
+    if (!isWhale && zScore < 2.2) return;
+
+    const reason = isWhale
+      ? `Whale print ${transaction.size.toFixed(2)}M`
+      : `Unusual size z-score ${zScore.toFixed(2)}`;
+    const alert = {
+      id: `${transaction.id}-ALERT`,
+      symbol: transaction.symbol,
+      direction: transaction.direction,
+      size: transaction.size,
+      reason,
+      timestamp: new Date(),
+    };
+
+    setAlerts((prevAlerts) => {
+      if (prevAlerts.some((existing) => existing.id === alert.id)) return prevAlerts;
+      return [alert, ...prevAlerts].slice(0, 25);
+    });
+  }, [transactions, whaleThreshold]);
+
   const filteredTransactions = useMemo(() => {
     const baseFiltered = transactions.filter((transaction) => {
       const stockMatch = selectedStock === 'ALL' || transaction.symbol === selectedStock;
@@ -313,7 +369,7 @@ export default function App() {
   const buyVolume = transactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.size, 0);
   const sellVolume = transactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.size, 0);
   const avgTradeSize = transactions.length ? totalVolume / transactions.length : 0;
-  const whaleTrades = transactions.filter((transaction) => transaction.size >= 25).length;
+  const whaleTrades = transactions.filter((transaction) => transaction.size >= whaleThreshold * 1000).length;
   const buyRatio = totalVolume > 0 ? (buyVolume / totalVolume * 100).toFixed(1) : 50;
 
   const mainChartData = selectedStock === 'ALL'
@@ -352,6 +408,27 @@ export default function App() {
             <span className="font-mono text-sm">{currentTime.toLocaleTimeString()}</span>
           </div>
 
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
+            {['dashboard', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                  viewMode === mode
+                    ? 'bg-dark-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+                style={{
+                  backgroundColor: viewMode === mode ? 'var(--color-card)' : undefined,
+                  color: viewMode === mode ? 'var(--color-accent)' : undefined,
+                }}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
             <span className="text-xs text-gray-400">LIVE</span>
@@ -361,6 +438,15 @@ export default function App() {
             <DollarSign size={14} className="text-accent-cyan" />
             <span className="font-mono text-sm text-white">{formatMillionsCurrency(totalVolume)}</span>
           </div>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => setSettingsModalOpen(true)}
+            className="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 hover:text-white transition-all"
+            title="Settings"
+          >
+            <Settings size={20} />
+          </button>
         </div>
       </header>
 
@@ -385,13 +471,12 @@ export default function App() {
             onClick={() => {
               setTransactions([]);
               setAlerts([]);
-              setChartData(
-                Object.fromEntries(
-                  Object.keys(MAG7_STOCKS).map((symbol) => [symbol, generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe])])
-                )
-              );
+              setChartData(createInitialChartData(timeframe));
+              setStockPrices(createInitialStockPrices());
+              setNewTransactionId(null);
             }}
             className="p-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white transition-all"
+            aria-label="Reset simulation"
             title="Reset simulation"
           >
             <RefreshCw size={16} />
@@ -433,6 +518,40 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Whale:</span>
+          <input
+            type="range"
+            min="10"
+            max="200"
+            step="10"
+            value={whaleThreshold}
+            onChange={(event) => setWhaleThreshold(Number(event.target.value))}
+            className="w-24 accent-accent-yellow"
+            style={{ accentColor: 'var(--color-accent-yellow)' }}
+          />
+          <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
+        </div>
+
+        {/* Greeks Display */}
+        <div className="flex items-center gap-1 ml-2">
+          {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
+            <label
+              key={name}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
+              title={name}
+            >
+              <input type="checkbox" className="sr-only" />
+              <span
+                className="font-bold text-sm"
+                style={{ color: 'var(--color-accent)' }}
+              >
+                {symbol}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Min:</span>
           <input
             type="range"
@@ -467,20 +586,129 @@ export default function App() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
-        {Object.values(MAG7_STOCKS).map((stock) => (
-          <StockCard
-            key={stock.symbol}
-            stock={stockPrices[stock.symbol] || stock}
-            data={chartData[stock.symbol] || []}
-            isActive={selectedStock === stock.symbol}
-            onClick={() => setSelectedStock(stock.symbol)}
-          />
-        ))}
-      </div>
+      {/* Main Content Based on View Mode */}
+      {viewMode === 'options' ? (
+        <OptionsDashboard settings={settings} />
+      ) : viewMode === 'scanner' ? (
+        <ScannerView />
+      ) : viewMode === 'alerts' ? (
+        <AlertsView />
+      ) : viewMode === 'watchlist' ? (
+        <WatchlistView />
+      ) : viewMode === 'health' ? (
+        <HealthView />
+      ) : viewMode === 'flowmap' ? (
+        <FlowMapView />
+      ) : viewMode === 'replay' ? (
+        <ReplayView />
+      ) : viewMode === 'admin' ? (
+        <AdminView />
+      ) : (
+        <>
+          {/* Dashboard Controls - Only show for dashboard view */}
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedStock}
+                onChange={(e) => setSelectedStock(e.target.value)}
+                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                <option value="ALL">ALL STOCKS</option>
+                {Object.values(MAG7_STOCKS).map((stock) => (
+                  <option key={stock.symbol} value={stock.symbol}>
+                    {stock.symbol} - {stock.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-dark-800 rounded-xl p-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Whale:</span>
+              <input
+                type="range"
+                min="10"
+                max="200"
+                step="10"
+                value={whaleThreshold}
+                onChange={(event) => setWhaleThreshold(Number(event.target.value))}
+                className="w-24 accent-accent-yellow"
+                style={{ accentColor: 'var(--color-accent-yellow)' }}
+              />
+              <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
+            </div>
+
+            {/* Greeks Display */}
+            <div className="flex items-center gap-1 ml-2">
+              {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
+                <label
+                  key={name}
+                  className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
+                  title={name}
+                >
+                  <input type="checkbox" className="sr-only" />
+                  <span
+                    className="font-bold text-sm"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    {symbol}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Min:</span>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={threshold}
+                onChange={(event) => setThreshold(Number(event.target.value))}
+                className="w-24 accent-accent-cyan"
+              />
+              <span className="font-mono text-sm text-accent-cyan">${threshold}M</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={feedSort}
+                onChange={(event) => setFeedSort(event.target.value)}
+                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
+              >
+                <option value="LATEST">Latest first</option>
+                <option value="LARGEST">Largest first</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => exportTransactionsToCsv(filteredTransactions)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-dark-800 text-gray-300 hover:text-white transition-all"
+                title="Export filtered feed"
+              >
+                <Download size={14} />
+                Export CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Stock Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
+            {Object.values(MAG7_STOCKS).map((stock) => (
+              <StockCard
+                key={stock.symbol}
+                stock={stockPrices[stock.symbol] || stock}
+                data={chartData[stock.symbol] || []}
+                isActive={selectedStock === stock.symbol}
+                onClick={() => setSelectedStock(stock.symbol)}
+                threshold={whaleThreshold}
+              />
+            ))}
+          </div>
+
+          {/* Charts & Feed */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-dark-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <BarChart3 size={20} className="text-accent-cyan" />
@@ -655,6 +883,18 @@ export default function App() {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        settings={settings}
+        onSettingsChange={(newSettings) => {
+          setSettings(newSettings);
+          writePersistedSettings(newSettings);
+        }}
+      />
     </div>
   );
 }
