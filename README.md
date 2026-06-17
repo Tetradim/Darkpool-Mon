@@ -55,9 +55,11 @@ Run the frontend:
 npm run dev
 ```
 
-Open http://localhost:5173.
+On Windows, double-click `Launch-Darkpool-Monitor.bat` from the repo root to start the backend on `8002` and the frontend on `3002`.
 
-The Vite dev server proxies API-backed views to the FastAPI backend on `http://127.0.0.1:8000`.
+Open http://localhost:3002 when using the launcher. Manual `npm run dev` still uses Vite's default port unless you pass `-- --port 3002`.
+
+The Vite dev server proxies API-backed views to the FastAPI backend on `http://127.0.0.1:8002`.
 
 Run the Discord bot:
 
@@ -68,7 +70,7 @@ python discord_bot.py
 ## Environment Variables
 
 - `SECRET_KEY`: persistent secret used for JWTs and password hashing.
-- `PORT`: FastAPI port, default `8000`.
+- `PORT`: FastAPI port, default `8002`.
 - `FRONTEND_URL`: CORS origin for the Vite app.
 - `POLYGON_API_KEY`: optional future market-data integration.
 - `INTRINIO_API_KEY`: optional future market-data integration.
