@@ -420,6 +420,12 @@ def test_trade_intent_endpoint_defaults_to_blocking_pulse_until_required_source_
     assert any("required source coverage" in blocker for blocker in body["intent"]["blockers"])
     assert any("Real-time price/NBBO confirmation" in blocker for blocker in body["intent"]["blockers"])
     assert any("Material news context" in reason for reason in body["pulse_status"]["reasons"])
+    assert body["intent"]["missing_required_source_coverage"] == [
+        "Real-time price/NBBO confirmation",
+        "Liquidity and depth confirmation",
+        "Trading halt/LULD blocker",
+        "Material news context",
+    ]
 
 
 def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():

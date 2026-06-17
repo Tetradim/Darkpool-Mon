@@ -24,6 +24,8 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Source Gate" in trade_intent_view
     assert "formatQualityFlags" in trade_intent_summary
     assert "Signal Quality Flags" in trade_intent_summary
+    assert "formatMissingSourceCoverage" in trade_intent_summary
+    assert "Missing Required Source Coverage" in trade_intent_summary
     assert "formatSentinelChecks" in trade_intent_summary
     assert "Sentinel Checklist" in trade_intent_summary
     assert "formatSourceConfirmationPlan" in trade_intent_summary

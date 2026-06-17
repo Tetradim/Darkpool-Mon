@@ -137,6 +137,13 @@ export const formatSourceCoverage = (coverage) => {
   });
 };
 
+export const formatMissingSourceCoverage = (missingCoverage) => {
+  if (!Array.isArray(missingCoverage) || missingCoverage.length === 0) {
+    return [];
+  }
+  return missingCoverage.map((label) => `Missing ${label}`);
+};
+
 export const formatSourceAdjustedConfidence = (intent) => {
   if (!intent) {
     return 'Source-adjusted confidence unavailable.';

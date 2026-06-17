@@ -7,6 +7,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatMissingSourceCoverage,
   formatSourceCoverage,
   formatSourceConfirmationPlan,
   formatSourceAdjustedConfidence,
@@ -232,6 +233,19 @@ describe('formatSourceCoverage', () => {
       ])
     ).toEqual([
       'MISSING REQUIRED Real-time price/NBBO confirmation - Real-time price/NBBO confirmation is missing; configure SIP/NBBO feed.',
+    ]);
+  });
+});
+
+describe('formatMissingSourceCoverage', () => {
+  it('summarizes missing required coverage as unavailable', () => {
+    expect(formatMissingSourceCoverage(null)).toEqual([]);
+  });
+
+  it('formats structured missing coverage labels for operator review', () => {
+    expect(formatMissingSourceCoverage(['Real-time price/NBBO confirmation', 'Trading halt/LULD blocker'])).toEqual([
+      'Missing Real-time price/NBBO confirmation',
+      'Missing Trading halt/LULD blocker',
     ]);
   });
 });

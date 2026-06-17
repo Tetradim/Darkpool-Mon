@@ -93,6 +93,7 @@ class TradeIntent(BaseModel):
     blockers: list[str]
     source_confirmation_weight: float
     source_adjusted_confidence: float
+    missing_required_source_coverage: list[str] = Field(default_factory=list)
     risk_plan: RiskPlan | None = None
     confidence_breakdown: list[ConfidenceComponent]
     quality_flags: list[QualityFlag]
@@ -384,6 +385,7 @@ def build_trade_intent(
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
     blockers: list[str] = []
+    missing_source_coverage = list(missing_required_source_coverage or [])
 
     if score.score < preferences.min_score:
         blockers.append(f"score {score.score:.1f} is below user minimum score {preferences.min_score:.1f}")
@@ -409,7 +411,7 @@ def build_trade_intent(
     _apply_source_confirmation_gate(
         source_confirmation_weight,
         source_coverage_complete,
-        missing_required_source_coverage,
+        missing_source_coverage,
         preferences,
         blockers,
     )
@@ -447,6 +449,9 @@ def build_trade_intent(
         blockers=blockers,
         source_confirmation_weight=source_weight,
         source_adjusted_confidence=source_adjusted_confidence,
+        missing_required_source_coverage=missing_source_coverage
+        if preferences.require_complete_source_coverage and not source_coverage_complete
+        else [],
         risk_plan=risk_plan,
         confidence_breakdown=confidence_breakdown,
         quality_flags=quality_flags,

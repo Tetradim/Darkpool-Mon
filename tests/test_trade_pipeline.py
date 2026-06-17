@@ -63,6 +63,12 @@ async def test_trade_pipeline_withholds_pulse_when_required_source_coverage_is_i
     assert any("required source coverage" in blocker for blocker in report.intent.blockers)
     assert any("Real-time price/NBBO confirmation" in blocker for blocker in report.intent.blockers)
     assert any("Trading halt/LULD blocker" in blocker for blocker in report.intent.blockers)
+    assert report.intent.missing_required_source_coverage == [
+        "Real-time price/NBBO confirmation",
+        "Liquidity and depth confirmation",
+        "Trading halt/LULD blocker",
+        "Material news context",
+    ]
 
 
 @pytest.mark.asyncio

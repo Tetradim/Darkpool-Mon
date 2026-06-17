@@ -3,6 +3,7 @@ import {
   formatConfirmationSummary,
   formatConfidenceBreakdown,
   formatIntentMoney,
+  formatMissingSourceCoverage,
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
@@ -36,6 +37,8 @@ export const TradeIntentSummary = ({
       </div>
     );
   }
+
+  const missingSourceCoverage = formatMissingSourceCoverage(intent.missing_required_source_coverage);
 
   return (
     <>
@@ -122,11 +125,23 @@ export const TradeIntentSummary = ({
           {intent.blockers.length === 0 ? (
             <p className="text-sm text-gray-400">No active blockers.</p>
           ) : (
-            <ul className="space-y-2">
-              {intent.blockers.map((blocker) => (
-                <li key={blocker} className="text-sm text-yellow-200">{blocker}</li>
-              ))}
-            </ul>
+            <div className="space-y-3">
+              {missingSourceCoverage.length > 0 && (
+                <div>
+                  <div className="text-xs text-gray-500 mb-2">Missing Required Source Coverage</div>
+                  <ul className="space-y-1">
+                    {missingSourceCoverage.map((line) => (
+                      <li key={line} className="text-sm text-yellow-100">{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <ul className="space-y-2">
+                {intent.blockers.map((blocker) => (
+                  <li key={blocker} className="text-sm text-yellow-200">{blocker}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 

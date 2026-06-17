@@ -172,6 +172,7 @@ The endpoint returns:
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
 - `intent.confidence_breakdown`: component-level score attribution for operator review before confirmation.
 - `intent.source_confirmation_weight` and `intent.source_adjusted_confidence`: configured confirmation-source coverage and the raw confluence confidence discounted by that coverage. Raw `intent.confidence` is still returned so operators can separate pattern strength from source confirmation strength.
+- `intent.missing_required_source_coverage`: structured labels for missing required source families when the source-coverage gate blocks the intent.
 - `intent.quality_flags`: support, caution, and missing-data flags for dark pool side bias, options flow, and exposure evidence. `max_quality_caution_flags` and `min_quality_support_flags` can block an intent before Sentinel approval.
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `confirmation_sources`: source-quality plan showing delayed context sources, live confirmation sources, missing adapters, role-level coverage, and recommended next integrations. `min_source_confirmation_weight` can block an intent until enough source coverage is configured.
