@@ -351,6 +351,7 @@ def _apply_quality_gates(quality_flags: list[QualityFlag], preferences: TradingP
 def _apply_source_confirmation_gate(
     source_confirmation_weight: float,
     source_coverage_complete: bool,
+    missing_required_source_coverage: list[str] | None,
     preferences: TradingPreferences,
     blockers: list[str],
 ) -> None:
@@ -360,9 +361,11 @@ def _apply_source_confirmation_gate(
             f"{preferences.min_source_confirmation_weight:.2f}"
         )
     if preferences.require_complete_source_coverage and not source_coverage_complete:
+        missing = ", ".join(missing_required_source_coverage or [])
+        suffix = f": {missing}" if missing else ""
         blockers.append(
             "required source coverage is incomplete; configure price/NBBO, liquidity/depth, halt/LULD, "
-            "and material-news sources before Pulse"
+            f"and material-news sources before Pulse{suffix}"
         )
 
 
@@ -376,6 +379,7 @@ def build_trade_intent(
     preferences: TradingPreferences | None = None,
     source_confirmation_weight: float = 0.0,
     source_coverage_complete: bool = True,
+    missing_required_source_coverage: list[str] | None = None,
 ) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -402,7 +406,13 @@ def build_trade_intent(
 
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
-    _apply_source_confirmation_gate(source_confirmation_weight, source_coverage_complete, preferences, blockers)
+    _apply_source_confirmation_gate(
+        source_confirmation_weight,
+        source_coverage_complete,
+        missing_required_source_coverage,
+        preferences,
+        blockers,
+    )
     source_weight = round(max(0.0, source_confirmation_weight), 2)
     source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)

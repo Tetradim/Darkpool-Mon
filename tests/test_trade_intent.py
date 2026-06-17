@@ -418,6 +418,8 @@ def test_trade_intent_endpoint_defaults_to_blocking_pulse_until_required_source_
     assert body["pulse_packet"] is None
     assert body["pulse_status"]["status"] == "withheld"
     assert any("required source coverage" in blocker for blocker in body["intent"]["blockers"])
+    assert any("Real-time price/NBBO confirmation" in blocker for blocker in body["intent"]["blockers"])
+    assert any("Material news context" in reason for reason in body["pulse_status"]["reasons"])
 
 
 def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():

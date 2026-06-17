@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .market_context import MarketContext, build_market_context
 from .pulse_gateway import PulseGateway
+from .source_catalog import TradeConfirmationPlan
 from .trade_intent import (
     LocalSentinelEdgeAdapter,
     SentinelConfirmation,
@@ -75,6 +76,10 @@ def _pulse_status(
     )
 
 
+def _missing_required_coverage_labels(plan: TradeConfirmationPlan) -> list[str]:
+    return [item.label for item in plan.coverage if item.required and item.status != "met"]
+
+
 async def build_trade_intent_report(
     symbol: str,
     provider: str,
@@ -107,6 +112,7 @@ async def build_trade_intent_report(
         preferences,
         source_confirmation_weight=context.confirmation_plan.available_confirmation_weight,
         source_coverage_complete=context.confirmation_plan.required_coverage_complete,
+        missing_required_source_coverage=_missing_required_coverage_labels(context.confirmation_plan),
     )
     sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None
