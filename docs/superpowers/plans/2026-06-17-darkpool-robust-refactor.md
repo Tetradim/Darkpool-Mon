@@ -1304,7 +1304,7 @@ git commit -m "test: add runtime startup smoke coverage"
 **Files:**
 - No production files unless verification exposes a bug.
 
-- [ ] **Step 1: Run backend tests**
+- [x] **Step 1: Run backend tests**
 
 ```bash
 pytest tests -q
@@ -1316,7 +1316,7 @@ Expected:
 all tests passed
 ```
 
-- [ ] **Step 2: Run frontend tests**
+- [x] **Step 2: Run frontend tests**
 
 ```bash
 npm test
@@ -1328,7 +1328,7 @@ Expected:
 all tests passed
 ```
 
-- [ ] **Step 3: Build frontend**
+- [x] **Step 3: Build frontend**
 
 ```bash
 npm run build
@@ -1342,7 +1342,7 @@ build exits 0
 
 The existing large chunk warning is acceptable until the frontend split is complete.
 
-- [ ] **Step 4: Run diff hygiene**
+- [x] **Step 4: Run diff hygiene**
 
 ```bash
 git diff --check main...HEAD
@@ -1356,7 +1356,7 @@ no diff-check errors
 clean worktree
 ```
 
-- [ ] **Step 5: Manual smoke**
+- [x] **Step 5: Manual smoke**
 
 Start backend:
 
