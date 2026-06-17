@@ -383,7 +383,7 @@ git commit -m "fix: use requested provider in command summaries"
 - Modify: `server.py`
 - Test: `tests/test_trade_pipeline.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -429,7 +429,7 @@ async def test_trade_pipeline_withholds_pulse_when_sentinel_rejects():
     assert report.pulse_packet is None
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -443,7 +443,7 @@ Expected:
 ModuleNotFoundError: No module named 'darkpool.trade_pipeline'
 ```
 
-- [ ] **Step 3: Implement `darkpool/trade_pipeline.py`**
+- [x] **Step 3: Implement `darkpool/trade_pipeline.py`**
 
 ```python
 """End-to-end trade-intent report assembly."""
@@ -510,7 +510,7 @@ async def build_trade_intent_report(
     )
 ```
 
-- [ ] **Step 4: Replace route orchestration in `server.py`**
+- [x] **Step 4: Replace route orchestration in `server.py`**
 
 The `/darkpool/trade-intent` route should:
 
@@ -543,7 +543,7 @@ return {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify GREEN**
+- [x] **Step 5: Run tests to verify GREEN**
 
 Run:
 
@@ -557,7 +557,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add darkpool/trade_pipeline.py server.py tests/test_trade_pipeline.py

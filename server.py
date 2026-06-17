@@ -26,17 +26,14 @@ from darkpool.discord_formatting import summary_to_embed
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
-from darkpool.market_context import build_market_context
 from darkpool.providers import ProviderError, fetch_provider_result
 from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.subscriptions import SubscriptionStore
 from darkpool.trade_intent import (
-    LocalSentinelEdgeAdapter,
     SentinelConfirmation,
     TradingPreferences,
-    build_trade_intent,
-    prepare_pulse_packet,
 )
+from darkpool.trade_pipeline import build_trade_intent_report
 
 load_dotenv()
 
@@ -723,17 +720,6 @@ async def get_darkpool_trade_intent(
         for name, provider_obj in PROVIDERS.items()
         if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
     ]
-    try:
-        context = await build_market_context(
-            symbol,
-            provider=provider,
-            limit=500,
-            price_bucket=price_bucket,
-            configured_providers=configured_providers,
-        )
-    except ProviderError as exc:
-        raise HTTPException(400, str(exc))
-
     preferences = TradingPreferences(
         min_score=min_score,
         max_distance_pct=max_distance_pct,
@@ -755,6 +741,21 @@ async def get_darkpool_trade_intent(
         observed_spread_bps=observed_spread_bps,
         max_spread_bps=max_spread_bps,
     )
+    try:
+        report = await build_trade_intent_report(
+            symbol=symbol,
+            provider=provider,
+            preferences=preferences,
+            confirmation=confirmation,
+            include_pulse_packet=include_pulse_packet,
+            price_bucket=price_bucket,
+            limit=500,
+            configured_providers=configured_providers,
+        )
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    context = report.context
     provider_result = context.provider_result
     scores = context.scores
     confirmation_sources = context.confirmation_plan
@@ -773,16 +774,6 @@ async def get_darkpool_trade_intent(
             "fetched_at": datetime.utcnow().isoformat(),
         }
 
-    intent = build_trade_intent(
-        scores[0],
-        preferences,
-        source_confirmation_weight=confirmation_sources.available_confirmation_weight,
-    )
-    sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
-    pulse_packet = None
-    if include_pulse_packet and sentinel.status == "approved":
-        pulse_packet = prepare_pulse_packet(intent, sentinel)
-
     return {
         "symbol": context.symbol,
         "provider": provider_result.provider,
@@ -790,9 +781,9 @@ async def get_darkpool_trade_intent(
         "message": provider_result.message,
         "preferences": preferences.model_dump(mode="json"),
         "confirmation_sources": confirmation_sources.model_dump(mode="json"),
-        "intent": intent.model_dump(mode="json"),
-        "sentinel": sentinel.model_dump(mode="json"),
-        "pulse_packet": pulse_packet,
+        "intent": report.intent.model_dump(mode="json") if report.intent else None,
+        "sentinel": report.sentinel.model_dump(mode="json") if report.sentinel else None,
+        "pulse_packet": report.pulse_packet,
         "source_score": scores[0].model_dump(mode="json"),
         "fetched_at": datetime.utcnow().isoformat(),
     }
