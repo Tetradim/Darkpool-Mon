@@ -65,18 +65,52 @@ def test_trade_intent_blocks_when_user_thresholds_are_not_met():
 
 
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
-    preferences = TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000)
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        max_risk_dollars=500,
+        stop_distance_pct=1.0,
+        reward_risk_ratio=2.0,
+        max_position_notional=100_000,
+    )
     intent = build_trade_intent(_score(), preferences)
     sentinel = LocalSentinelEdgeAdapter().review(intent)
 
     assert intent.status == "ready_for_sentinel"
     assert intent.action == "BUY"
+    assert intent.risk_plan is not None
+    assert intent.risk_plan.stop_price == 178.2
+    assert intent.risk_plan.target_price == 183.6
+    assert intent.risk_plan.position_notional <= 100_000
     assert sentinel.status == "approved"
     packet = prepare_pulse_packet(intent, sentinel)
     assert packet["destination"] == "pulse"
     assert packet["action"] == "BUY"
     assert packet["requires_manual_execution"] is True
     assert packet["sentinel_decision_id"] == sentinel.decision_id
+    assert packet["risk_plan"]["max_risk_dollars"] == 500.0
+    assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
+
+
+def test_trade_intent_blocks_when_risk_controls_are_invalid():
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        max_risk_dollars=0,
+        stop_distance_pct=0,
+    )
+
+    intent = build_trade_intent(_score(), preferences)
+    sentinel = LocalSentinelEdgeAdapter().review(intent)
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert intent.risk_plan is None
+    assert sentinel.status == "rejected"
+    assert any("risk budget" in blocker for blocker in intent.blockers)
+    assert any("stop distance" in blocker for blocker in intent.blockers)
 
 
 def test_pulse_packet_rejects_missing_or_failed_sentinel_confirmation():
@@ -95,6 +129,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     response = client.get(
         "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
         "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000"
     )
 
     assert response.status_code == 200, response.text
@@ -106,5 +141,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"
         assert body["pulse_packet"]["requires_manual_execution"] is True
+        assert body["intent"]["risk_plan"]["max_risk_dollars"] == 750.0
+        assert body["pulse_packet"]["risk_plan"]["max_position_notional"] == 40000.0
     else:
         assert body["pulse_packet"] is None

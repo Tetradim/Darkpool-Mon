@@ -5,6 +5,10 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   maxDistancePct: 1,
   minNotional: 25000000,
   maxFreshnessMinutes: 120,
+  maxRiskDollars: 500,
+  stopDistancePct: 1,
+  rewardRiskRatio: 2,
+  maxPositionNotional: 50000,
   allowBuy: true,
   allowSell: true,
   includePulsePacket: true,
@@ -26,6 +30,19 @@ export const buildTradeIntentUrl = (settings = {}) => {
   params.set(
     'max_freshness_minutes',
     String(asNumber(merged.maxFreshnessMinutes, DEFAULT_TRADE_INTENT_SETTINGS.maxFreshnessMinutes))
+  );
+  params.set('max_risk_dollars', String(asNumber(merged.maxRiskDollars, DEFAULT_TRADE_INTENT_SETTINGS.maxRiskDollars)));
+  params.set(
+    'stop_distance_pct',
+    String(asNumber(merged.stopDistancePct, DEFAULT_TRADE_INTENT_SETTINGS.stopDistancePct))
+  );
+  params.set(
+    'reward_risk_ratio',
+    String(asNumber(merged.rewardRiskRatio, DEFAULT_TRADE_INTENT_SETTINGS.rewardRiskRatio))
+  );
+  params.set(
+    'max_position_notional',
+    String(asNumber(merged.maxPositionNotional, DEFAULT_TRADE_INTENT_SETTINGS.maxPositionNotional))
   );
   params.set('allow_buy', String(Boolean(merged.allowBuy)));
   params.set('allow_sell', String(Boolean(merged.allowSell)));
@@ -68,9 +85,25 @@ export const summarizePulsePacket = (packet) => {
   if (!packet) {
     return 'Pulse packet withheld until Sentinel Edge approval.';
   }
+  if (packet.risk_plan) {
+    return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${Number(packet.confidence).toFixed(
+      1
+    )} confidence with ${formatIntentMoney(packet.risk_plan.max_risk_dollars)} max risk and ${formatIntentMoney(
+      packet.risk_plan.position_notional
+    )} planned notional; manual execution still required.`;
+  }
   return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${Number(packet.confidence).toFixed(
     1
   )} confidence; manual execution still required.`;
+};
+
+export const formatRiskPlanSummary = (riskPlan) => {
+  if (!riskPlan) {
+    return 'Risk plan unavailable.';
+  }
+  return `${riskPlan.estimated_shares} shares, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
+    riskPlan.target_price
+  ).toFixed(2)}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
 };
 
 export const formatIntentMoney = (value) => {
@@ -82,7 +115,7 @@ export const formatIntentMoney = (value) => {
     return `$${(amount / 1_000_000).toFixed(2)}M`;
   }
   if (Math.abs(amount) >= 1_000) {
-    return `$${(amount / 1_000).toFixed(1)}K`;
+    return `$${(amount / 1_000).toFixed(2)}K`;
   }
   return `$${amount.toFixed(0)}`;
 };

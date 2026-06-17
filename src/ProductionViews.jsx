@@ -4,6 +4,7 @@ import {
   DEFAULT_TRADE_INTENT_SETTINGS,
   buildTradeIntentUrl,
   formatIntentMoney,
+  formatRiskPlanSummary,
   getIntentTone,
   summarizePulsePacket,
 } from './tradeIntent';
@@ -426,6 +427,54 @@ const TradeIntentView = () => {
                 className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
               />
             </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Risk Dollars</span>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                value={controls.maxRiskDollars}
+                onChange={(event) => updateControl('maxRiskDollars', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Stop Distance %</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={controls.stopDistancePct}
+                onChange={(event) => updateControl('stopDistancePct', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Reward/Risk</span>
+              <input
+                type="number"
+                min="0"
+                step="0.25"
+                value={controls.rewardRiskRatio}
+                onChange={(event) => updateControl('rewardRiskRatio', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Position Notional</span>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                value={controls.maxPositionNotional}
+                onChange={(event) => updateControl('maxPositionNotional', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -543,10 +592,20 @@ const TradeIntentView = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bg-dark-700 rounded-lg p-4">
+                  <div className="text-xs text-gray-500 mb-2">Risk Plan</div>
+                  <p className="text-sm text-gray-200">{formatRiskPlanSummary(intent.risk_plan)}</p>
+                  {intent.risk_plan?.notes?.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-2">{intent.risk_plan.notes.join(' ')}</p>
+                  )}
+                </div>
+
+                <div className="bg-dark-700 rounded-lg p-4">
                   <div className="text-xs text-gray-500 mb-2">Sentinel Edge</div>
                   <p className="text-sm text-gray-200">{sentinel?.reasons?.join(' ') || 'No Sentinel decision.'}</p>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 gap-4">
                 <div className="bg-dark-700 rounded-lg p-4">
                   <div className="text-xs text-gray-500 mb-2">Pulse</div>
                   <p className="text-sm text-gray-200">{summarizePulsePacket(pulsePacket)}</p>

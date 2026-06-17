@@ -680,6 +680,10 @@ async def get_darkpool_trade_intent(
     max_distance_pct: float = Query(1.0, ge=0, le=10),
     min_notional: float = Query(25_000_000.0, ge=0),
     max_freshness_minutes: float = Query(120.0, ge=0),
+    max_risk_dollars: float = Query(500.0, ge=0),
+    stop_distance_pct: float = Query(1.0, ge=0, le=20),
+    reward_risk_ratio: float = Query(2.0, ge=0),
+    max_position_notional: float = Query(50_000.0, ge=0),
     allow_buy: bool = Query(True),
     allow_sell: bool = Query(True),
     include_pulse_packet: bool = Query(False),
@@ -699,6 +703,10 @@ async def get_darkpool_trade_intent(
         max_distance_pct=max_distance_pct,
         min_notional=min_notional,
         max_freshness_minutes=max_freshness_minutes,
+        max_risk_dollars=max_risk_dollars,
+        stop_distance_pct=stop_distance_pct,
+        reward_risk_ratio=reward_risk_ratio,
+        max_position_notional=max_position_notional,
         allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
     )
 

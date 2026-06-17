@@ -14,7 +14,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Dark pool level engine that clusters prints by symbol and price bucket.
 - Heatseeker-style context concepts: king node, floor, ceiling, gatekeepers, air pockets, and confluence scoring.
 - Alert candidate generation with severity, reasons, score, notional, and deduplication.
-- Trade-intent gate with user-adjustable score, distance, notional, and freshness thresholds before Sentinel Edge confirmation and Pulse packet preparation.
+- Trade-intent gate with user-adjustable score, distance, notional, freshness, and risk controls before Sentinel Edge confirmation and Pulse packet preparation.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
 
 ## Production Posture
@@ -99,7 +99,7 @@ Dark pool intelligence:
 - `GET /darkpool/levels?symbol=AAPL&provider=demo`
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
-- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000`
+- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000`
 
 Scanner and visualization:
 
@@ -158,13 +158,14 @@ Discord integration:
 
 ## Trade Intent Gate
 
-`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, and allowed buy/sell sides.
+`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, and max position notional.
 
-The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, allowed buy/sell sides, and Pulse packet inclusion.
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, allowed buy/sell sides, and Pulse packet inclusion.
 
 The endpoint returns:
 
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
+- `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold.
 - `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent.
 

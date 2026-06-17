@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
+from math import floor
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -21,8 +22,26 @@ class TradingPreferences(BaseModel):
     max_distance_pct: float = Field(default=1.0, ge=0, le=10)
     min_notional: float = Field(default=25_000_000.0, ge=0)
     max_freshness_minutes: float = Field(default=120.0, ge=0)
+    max_risk_dollars: float = Field(default=500.0, ge=0)
+    stop_distance_pct: float = Field(default=1.0, ge=0)
+    reward_risk_ratio: float = Field(default=2.0, ge=0)
+    max_position_notional: float = Field(default=50_000.0, ge=0)
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])
+
+
+class RiskPlan(BaseModel):
+    max_risk_dollars: float
+    stop_distance_pct: float
+    reward_risk_ratio: float
+    max_position_notional: float
+    position_notional: float
+    estimated_shares: int
+    stop_price: float
+    target_price: float
+    estimated_loss_dollars: float
+    estimated_gain_dollars: float
+    notes: list[str]
 
 
 class TradeIntent(BaseModel):
@@ -39,6 +58,7 @@ class TradeIntent(BaseModel):
     readable_summary: str
     reasons: list[str]
     blockers: list[str]
+    risk_plan: RiskPlan | None = None
 
 
 class SentinelDecision(BaseModel):
@@ -67,6 +87,57 @@ def _stable_id(*parts: object) -> str:
     return digest[:16]
 
 
+def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: TradingPreferences, blockers: list[str]) -> RiskPlan | None:
+    if action not in {"BUY", "SELL"}:
+        return None
+    if preferences.max_risk_dollars <= 0:
+        blockers.append("risk budget must be greater than zero")
+    if preferences.stop_distance_pct <= 0:
+        blockers.append("stop distance must be greater than zero")
+    if preferences.reward_risk_ratio <= 0:
+        blockers.append("reward/risk ratio must be greater than zero")
+    if preferences.max_position_notional <= 0:
+        blockers.append("max position notional must be greater than zero")
+    if score.spot_price <= 0:
+        blockers.append("spot price must be greater than zero for position sizing")
+    if blockers:
+        return None
+
+    stop_fraction = preferences.stop_distance_pct / 100
+    risk_limited_notional = preferences.max_risk_dollars / stop_fraction
+    position_notional = min(risk_limited_notional, preferences.max_position_notional)
+    estimated_shares = floor(position_notional / score.spot_price)
+    if estimated_shares <= 0:
+        blockers.append("position sizing produced zero shares")
+        return None
+
+    if action == "BUY":
+        stop_price = score.level_price * (1 - stop_fraction)
+        target_price = score.level_price * (1 + stop_fraction * preferences.reward_risk_ratio)
+    else:
+        stop_price = score.level_price * (1 + stop_fraction)
+        target_price = score.level_price * (1 - stop_fraction * preferences.reward_risk_ratio)
+
+    notes = ["position sizing is a planning envelope, not an order"]
+    if position_notional < risk_limited_notional:
+        notes.append("position capped by max position notional")
+
+    estimated_loss = position_notional * stop_fraction
+    return RiskPlan(
+        max_risk_dollars=float(preferences.max_risk_dollars),
+        stop_distance_pct=float(preferences.stop_distance_pct),
+        reward_risk_ratio=float(preferences.reward_risk_ratio),
+        max_position_notional=float(preferences.max_position_notional),
+        position_notional=round(position_notional, 2),
+        estimated_shares=estimated_shares,
+        stop_price=round(stop_price, 2),
+        target_price=round(target_price, 2),
+        estimated_loss_dollars=round(min(estimated_loss, preferences.max_risk_dollars), 2),
+        estimated_gain_dollars=round(min(estimated_loss, preferences.max_risk_dollars) * preferences.reward_risk_ratio, 2),
+        notes=notes,
+    )
+
+
 def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences | None = None) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -91,7 +162,8 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
     if candidate_action in {"BUY", "SELL"} and candidate_action not in preferences.allowed_actions:
         blockers.append(f"{candidate_action} is not enabled in user allowed actions")
 
-    status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" else "ready_for_sentinel"
+    risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
+    status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
     action: TradeAction = "HOLD" if status == "blocked" else candidate_action
     if status == "blocked":
         summary = (
@@ -119,6 +191,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
         readable_summary=summary,
         reasons=score.reasons,
         blockers=blockers,
+        risk_plan=risk_plan,
     )
 
 
@@ -160,6 +233,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "notional": intent.notional,
         "sentinel_decision_id": sentinel_decision.decision_id,
         "requires_manual_execution": True,
+        "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "reasons": intent.reasons,
     }
