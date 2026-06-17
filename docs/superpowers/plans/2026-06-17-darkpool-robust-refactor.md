@@ -99,7 +99,7 @@ Each route module exports an `APIRouter`. `server.py` becomes an app factory plu
 - Create: `darkpool/market_context.py`
 - Test: `tests/test_market_context.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -125,7 +125,7 @@ async def test_market_context_rejects_unknown_provider():
         await build_market_context("AAPL", provider="missing-provider", limit=20)
 ```
 
-- [ ] **Step 2: Run the tests to verify RED**
+- [x] **Step 2: Run the tests to verify RED**
 
 Run:
 
@@ -139,7 +139,7 @@ Expected:
 ModuleNotFoundError: No module named 'darkpool.market_context'
 ```
 
-- [ ] **Step 3: Implement `darkpool/market_context.py`**
+- [x] **Step 3: Implement `darkpool/market_context.py`**
 
 ```python
 """Provider-backed market context assembly for dark pool workflows."""
@@ -205,7 +205,7 @@ async def build_market_context(
     )
 ```
 
-- [ ] **Step 4: Run the tests to verify GREEN**
+- [x] **Step 4: Run the tests to verify GREEN**
 
 Run:
 
@@ -219,7 +219,7 @@ Expected:
 2 passed
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add darkpool/market_context.py tests/test_market_context.py
@@ -1524,4 +1524,3 @@ curl http://127.0.0.1:8000/health
 curl "http://127.0.0.1:8000/darkpool/trade-intent?symbol=AAPL&provider=demo"
 curl -X POST "http://127.0.0.1:8000/alerts/route?symbol=AAPL&alert_type=runtime&channel=discord&size=1"
 ```
-

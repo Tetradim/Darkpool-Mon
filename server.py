@@ -26,6 +26,7 @@ from darkpool.discord_formatting import summary_to_embed
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
+from darkpool.market_context import build_market_context
 from darkpool.providers import ProviderError, fetch_provider_result
 from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.subscriptions import SubscriptionStore
@@ -717,15 +718,22 @@ async def get_darkpool_trade_intent(
     include_pulse_packet: bool = Query(False),
 ):
     """Build a user-readable trade intent and gate it through Sentinel Edge."""
+    configured_providers = [
+        name
+        for name, provider_obj in PROVIDERS.items()
+        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
+    ]
     try:
-        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+        context = await build_market_context(
+            symbol,
+            provider=provider,
+            limit=500,
+            price_bucket=price_bucket,
+            configured_providers=configured_providers,
+        )
     except ProviderError as exc:
         raise HTTPException(400, str(exc))
 
-    stock = get_stock(symbol)
-    spot = float(stock.get("basePrice", 100.0))
-    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
-    scores = score_confluence(symbol, spot, levels, sample_exposure_nodes(symbol, spot), sample_options_flow(symbol))
     preferences = TradingPreferences(
         min_score=min_score,
         max_distance_pct=max_distance_pct,
@@ -747,19 +755,13 @@ async def get_darkpool_trade_intent(
         observed_spread_bps=observed_spread_bps,
         max_spread_bps=max_spread_bps,
     )
-    configured_providers = [
-        name
-        for name, provider_obj in PROVIDERS.items()
-        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
-    ]
-    confirmation_sources = build_trade_confirmation_plan(
-        active_provider=provider_result.provider,
-        configured_providers=configured_providers,
-    )
+    provider_result = context.provider_result
+    scores = context.scores
+    confirmation_sources = context.confirmation_plan
 
     if not scores:
         return {
-            "symbol": symbol.upper(),
+            "symbol": context.symbol,
             "provider": provider_result.provider,
             "degraded": provider_result.degraded,
             "message": provider_result.message,
@@ -782,7 +784,7 @@ async def get_darkpool_trade_intent(
         pulse_packet = prepare_pulse_packet(intent, sentinel)
 
     return {
-        "symbol": symbol.upper(),
+        "symbol": context.symbol,
         "provider": provider_result.provider,
         "degraded": provider_result.degraded,
         "message": provider_result.message,
