@@ -28,6 +28,12 @@ from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sampl
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
 from darkpool.providers import ProviderError, fetch_provider_result
 from darkpool.subscriptions import SubscriptionStore
+from darkpool.trade_intent import (
+    LocalSentinelEdgeAdapter,
+    TradingPreferences,
+    build_trade_intent,
+    prepare_pulse_packet,
+)
 
 load_dotenv()
 
@@ -662,6 +668,70 @@ async def get_darkpool_alert_candidates(
         "degraded": provider_result.degraded,
         "message": provider_result.message,
         "alerts": [alert.model_dump(mode="json") for alert in alerts],
+    }
+
+
+@app.get("/darkpool/trade-intent")
+async def get_darkpool_trade_intent(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    price_bucket: float = Query(0.10, gt=0, le=5),
+    min_score: float = Query(75.0, ge=0, le=100),
+    max_distance_pct: float = Query(1.0, ge=0, le=10),
+    min_notional: float = Query(25_000_000.0, ge=0),
+    max_freshness_minutes: float = Query(120.0, ge=0),
+    allow_buy: bool = Query(True),
+    allow_sell: bool = Query(True),
+    include_pulse_packet: bool = Query(False),
+):
+    """Build a user-readable trade intent and gate it through Sentinel Edge."""
+    try:
+        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    stock = get_stock(symbol)
+    spot = float(stock.get("basePrice", 100.0))
+    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
+    scores = score_confluence(symbol, spot, levels, sample_exposure_nodes(symbol, spot), sample_options_flow(symbol))
+    preferences = TradingPreferences(
+        min_score=min_score,
+        max_distance_pct=max_distance_pct,
+        min_notional=min_notional,
+        max_freshness_minutes=max_freshness_minutes,
+        allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
+    )
+
+    if not scores:
+        return {
+            "symbol": symbol.upper(),
+            "provider": provider_result.provider,
+            "degraded": provider_result.degraded,
+            "message": provider_result.message,
+            "preferences": preferences.model_dump(mode="json"),
+            "intent": None,
+            "sentinel": None,
+            "pulse_packet": None,
+            "fetched_at": datetime.utcnow().isoformat(),
+        }
+
+    intent = build_trade_intent(scores[0], preferences)
+    sentinel = LocalSentinelEdgeAdapter().review(intent)
+    pulse_packet = None
+    if include_pulse_packet and sentinel.status == "approved":
+        pulse_packet = prepare_pulse_packet(intent, sentinel)
+
+    return {
+        "symbol": symbol.upper(),
+        "provider": provider_result.provider,
+        "degraded": provider_result.degraded,
+        "message": provider_result.message,
+        "preferences": preferences.model_dump(mode="json"),
+        "intent": intent.model_dump(mode="json"),
+        "sentinel": sentinel.model_dump(mode="json"),
+        "pulse_packet": pulse_packet,
+        "source_score": scores[0].model_dump(mode="json"),
+        "fetched_at": datetime.utcnow().isoformat(),
     }
 
 

@@ -14,6 +14,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Dark pool level engine that clusters prints by symbol and price bucket.
 - Heatseeker-style context concepts: king node, floor, ceiling, gatekeepers, air pockets, and confluence scoring.
 - Alert candidate generation with severity, reasons, score, notional, and deduplication.
+- Trade-intent gate with user-adjustable score, distance, notional, and freshness thresholds before Sentinel Edge confirmation and Pulse packet preparation.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
 
 ## Production Posture
@@ -23,7 +24,7 @@ The project is now structured so the bot can run locally in demo mode immediatel
 Use `provider=demo` for local development, tests, and UI demos.
 Use `provider=finra` for public FINRA aggregate data. FINRA data is useful for aggregate venue context, but it is not a real-time dark pool tape.
 
-The app intentionally requires price confirmation and human review. It should not place orders automatically from a single print, confluence score, or Discord alert.
+The app intentionally requires price confirmation and human review. It should not place orders automatically from a single print, confluence score, Discord alert, or Pulse packet.
 
 ## Setup
 
@@ -96,6 +97,7 @@ Dark pool intelligence:
 - `GET /darkpool/levels?symbol=AAPL&provider=demo`
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
+- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000`
 
 Scanner and visualization:
 
@@ -151,6 +153,18 @@ Discord integration:
 - `/setalert symbol:AAPL threshold:100000`: set a whale threshold in shares.
 - `/alertstatus`: list configured alert thresholds.
 - `/removealert symbol:AAPL`: remove a threshold.
+
+## Trade Intent Gate
+
+`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, and allowed buy/sell sides.
+
+The endpoint returns:
+
+- `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
+- `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold.
+- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent.
+
+Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading.
 
 ## Testing
 
