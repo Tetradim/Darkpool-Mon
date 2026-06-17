@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from datetime import datetime
 from typing import Literal
 
@@ -377,6 +378,7 @@ async def get_darkpool_trade_intent(
             "intent": None,
             "sentinel": None,
             "pulse_packet": None,
+            "pulse_status": asdict(report.pulse_status),
             "fetched_at": datetime.utcnow().isoformat(),
         }
 
@@ -390,6 +392,7 @@ async def get_darkpool_trade_intent(
         "intent": report.intent.model_dump(mode="json") if report.intent else None,
         "sentinel": report.sentinel.model_dump(mode="json") if report.sentinel else None,
         "pulse_packet": report.pulse_packet,
+        "pulse_status": asdict(report.pulse_status),
         "source_score": scores[0].model_dump(mode="json"),
         "fetched_at": datetime.utcnow().isoformat(),
     }

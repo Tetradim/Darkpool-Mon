@@ -18,12 +18,61 @@ from .trade_intent import (
 
 
 @dataclass(frozen=True)
+class PulseStatus:
+    status: str
+    message: str
+    reasons: list[str]
+    requires_manual_execution: bool
+    sentinel_status: str | None = None
+
+
+@dataclass(frozen=True)
 class TradeIntentReport:
     context: MarketContext
     preferences: TradingPreferences
     intent: TradeIntent | None
     sentinel: SentinelDecision | None
     pulse_packet: dict | None
+    pulse_status: PulseStatus
+
+
+def _pulse_status(
+    include_pulse_packet: bool,
+    intent: TradeIntent | None,
+    sentinel: SentinelDecision | None,
+    pulse_packet: dict | None,
+) -> PulseStatus:
+    if intent is None or sentinel is None:
+        return PulseStatus(
+            status="unavailable",
+            message="Pulse communication unavailable because no trade intent could be built.",
+            reasons=["no trade intent available"],
+            requires_manual_execution=True,
+            sentinel_status=None,
+        )
+    if not include_pulse_packet:
+        return PulseStatus(
+            status="not_requested",
+            message="Pulse communication was not requested for this review.",
+            reasons=["include_pulse_packet=false"],
+            requires_manual_execution=True,
+            sentinel_status=sentinel.status,
+        )
+    if pulse_packet is not None:
+        return PulseStatus(
+            status="prepared",
+            message="Pulse communication packet prepared for manual execution review.",
+            reasons=sentinel.reasons,
+            requires_manual_execution=True,
+            sentinel_status=sentinel.status,
+        )
+    return PulseStatus(
+        status="withheld",
+        message="Pulse communication withheld until Sentinel Edge approval is complete.",
+        reasons=sentinel.reasons or intent.blockers or ["Sentinel Edge approval is required"],
+        requires_manual_execution=True,
+        sentinel_status=sentinel.status,
+    )
 
 
 async def build_trade_intent_report(
@@ -50,6 +99,7 @@ async def build_trade_intent_report(
             intent=None,
             sentinel=None,
             pulse_packet=None,
+            pulse_status=_pulse_status(include_pulse_packet, None, None, None),
         )
 
     intent = build_trade_intent(
@@ -68,4 +118,5 @@ async def build_trade_intent_report(
         intent=intent,
         sentinel=sentinel,
         pulse_packet=pulse_packet,
+        pulse_status=_pulse_status(include_pulse_packet, intent, sentinel, pulse_packet),
     )

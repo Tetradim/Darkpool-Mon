@@ -411,6 +411,10 @@ def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
     body = response.json()
     assert body["sentinel"]["status"] == "rejected"
     assert body["pulse_packet"] is None
+    assert body["pulse_status"]["status"] == "withheld"
+    assert body["pulse_status"]["requires_manual_execution"] is True
+    assert body["pulse_status"]["sentinel_status"] == "rejected"
+    assert any("price confirmation" in reason for reason in body["pulse_status"]["reasons"])
     assert any("price confirmation" in reason for reason in body["sentinel"]["reasons"])
 
 

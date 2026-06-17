@@ -178,8 +178,9 @@ The endpoint returns:
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
 - `sentinel.checks`: named pass/fail checklist entries for intent readiness, price confirmation, liquidity confirmation, news check, and spread guard.
 - `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, raw confidence, source-adjusted confidence, confidence breakdown, quality flags, and Sentinel checklist for manual execution review.
+- `pulse_status`: explicit Pulse readiness metadata with `prepared`, `withheld`, `not_requested`, or `unavailable` status, a user-readable message, blocker reasons, Sentinel status, and `requires_manual_execution=true`.
 
-Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld.
+Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld and `pulse_status.reasons` explains why.
 
 The dashboard Pulse summary shows raw confidence alongside source-adjusted confidence when a packet is available, so manual reviewers can see how much confirmation-source coverage discounted the original confluence score before considering any Pulse handoff.
 
