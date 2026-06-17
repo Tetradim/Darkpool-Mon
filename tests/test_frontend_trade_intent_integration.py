@@ -29,6 +29,8 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Source Confirmation Plan" in trade_intent_summary
     assert "formatSourceAdjustedConfidence" in trade_intent_summary
     assert "Source-Adjusted" in trade_intent_summary
+    assert "pulse_status" in trade_intent_view
+    assert "pulseStatus" in trade_intent_summary
 
 
 def test_trade_intent_view_is_split_into_dedicated_modules():

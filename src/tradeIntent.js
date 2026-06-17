@@ -31,8 +31,18 @@ export const getIntentTone = (intent) => {
   };
 };
 
-export const summarizePulsePacket = (packet) => {
+const formatPulseStatusReasons = (pulseStatus) => {
+  if (!Array.isArray(pulseStatus?.reasons) || pulseStatus.reasons.length === 0) {
+    return '';
+  }
+  return ` Reasons: ${pulseStatus.reasons.join(' ')}`;
+};
+
+export const summarizePulsePacket = (packet, pulseStatus = null) => {
   if (!packet) {
+    if (pulseStatus?.message) {
+      return `${pulseStatus.message}${formatPulseStatusReasons(pulseStatus)}`;
+    }
     return 'Pulse packet withheld until Sentinel Edge approval.';
   }
   const rawConfidence = Number(packet.confidence).toFixed(1);

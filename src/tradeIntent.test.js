@@ -65,6 +65,28 @@ describe('summarizePulsePacket', () => {
     expect(summarizePulsePacket(null)).toBe('Pulse packet withheld until Sentinel Edge approval.');
   });
 
+  it('uses Pulse status to distinguish disabled packet preparation', () => {
+    expect(
+      summarizePulsePacket(null, {
+        status: 'not_requested',
+        message: 'Pulse communication was not requested for this review.',
+        reasons: ['include_pulse_packet=false'],
+      })
+    ).toBe('Pulse communication was not requested for this review. Reasons: include_pulse_packet=false');
+  });
+
+  it('uses Pulse status reasons when Sentinel withholds packet preparation', () => {
+    expect(
+      summarizePulsePacket(null, {
+        status: 'withheld',
+        message: 'Pulse communication withheld until Sentinel Edge approval is complete.',
+        reasons: ['price confirmation required before Pulse'],
+      })
+    ).toBe(
+      'Pulse communication withheld until Sentinel Edge approval is complete. Reasons: price confirmation required before Pulse'
+    );
+  });
+
   it('summarizes approved Pulse packets without implying live execution', () => {
     expect(
       summarizePulsePacket({

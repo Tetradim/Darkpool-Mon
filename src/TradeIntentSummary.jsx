@@ -15,6 +15,7 @@ export const TradeIntentSummary = ({
   intent,
   sentinel,
   pulsePacket,
+  pulseStatus,
   confirmationSources,
   loading,
   error,
@@ -163,8 +164,15 @@ export const TradeIntentSummary = ({
 
       <div className="grid grid-cols-1 gap-4">
         <div className="bg-dark-700 rounded-lg p-4">
-          <div className="text-xs text-gray-500 mb-2">Pulse</div>
-          <p className="text-sm text-gray-200">{summarizePulsePacket(pulsePacket)}</p>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="text-xs text-gray-500">Pulse</div>
+            {pulseStatus?.status && (
+              <span className="rounded border border-dark-500 px-2 py-1 text-xs uppercase text-gray-300">
+                {pulseStatus.status.replace('_', ' ')}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-200">{summarizePulsePacket(pulsePacket, pulseStatus)}</p>
         </div>
       </div>
     </>

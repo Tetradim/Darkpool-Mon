@@ -62,6 +62,7 @@ export const TradeIntentView = () => {
   const intent = result?.intent;
   const sentinel = result?.sentinel;
   const pulsePacket = result?.pulse_packet;
+  const pulseStatus = result?.pulse_status;
   const confirmationSources = result?.confirmation_sources;
   const tone = getIntentTone(intent);
 
@@ -219,6 +220,7 @@ export const TradeIntentView = () => {
             intent={intent}
             sentinel={sentinel}
             pulsePacket={pulsePacket}
+            pulseStatus={pulseStatus}
             confirmationSources={confirmationSources}
             loading={loading}
             error={error}
