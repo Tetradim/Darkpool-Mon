@@ -41,6 +41,43 @@ const exportTransactionsToCsv = (rows) => {
   URL.revokeObjectURL(url);
 };
 
+const readPersistedSettings = () => {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const persisted = localStorage.getItem(STORAGE_KEY);
+    if (!persisted) return {};
+    const parsed = JSON.parse(persisted);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.debug('Ignoring invalid persisted dashboard settings', error);
+    return {};
+  }
+};
+
+const writePersistedSettings = (settings) => {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch (error) {
+    console.debug('Unable to persist dashboard settings', error);
+  }
+};
+
+const createInitialStockPrices = () => (
+  Object.fromEntries(
+    Object.entries(MAG7_STOCKS).map(([symbol, stock]) => [symbol, { ...stock }])
+  )
+);
+
+const createInitialChartData = (timeframe) => (
+  Object.fromEntries(
+    Object.keys(MAG7_STOCKS).map((symbol) => [
+      symbol,
+      generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe]),
+    ])
+  )
+);
+
 const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
   const latestData = data[data.length - 1] || { buyVolume: 0, sellVolume: 0 };
   const totalVolume = latestData.totalVolume || 0;
@@ -180,23 +217,20 @@ export default function App() {
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
   const [settings, setSettings] = useState(() => {
-    // Load from localStorage or use defaults
-    const persisted = localStorage.getItem(STORAGE_KEY);
-    const saved = persisted ? JSON.parse(persisted) : {};
-    return { ...DEFAULT_SETTINGS, ...saved };
+    return { ...DEFAULT_SETTINGS, ...readPersistedSettings() };
   });
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [feedSort, setFeedSort] = useState('LATEST');
   const [chartData, setChartData] = useState({});
-  const [stockPrices, setStockPrices] = useState(MAG7_STOCKS);
+  const [stockPrices, setStockPrices] = useState(() => createInitialStockPrices());
   const [newTransactionId, setNewTransactionId] = useState(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const feedRef = useRef(null);
+  const lastAlertedTransactionId = useRef(null);
 
   useEffect(() => {
-    const persisted = localStorage.getItem(STORAGE_KEY);
-    if (persisted) {
-      const settings = JSON.parse(persisted);
+    const settings = readPersistedSettings();
+    if (Object.keys(settings).length > 0) {
       setSelectedStock(settings.selectedStock || 'ALL');
       setTimeframe(settings.timeframe || '1H');
       setThreshold(settings.threshold || 1);
@@ -207,18 +241,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning })
-    );
+    writePersistedSettings({ selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning });
   }, [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
 
   useEffect(() => {
-    const initialData = {};
-    Object.keys(MAG7_STOCKS).forEach((symbol) => {
-      initialData[symbol] = generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe]);
-    });
-    setChartData(initialData);
+    setChartData(createInitialChartData(timeframe));
   }, [timeframe]);
 
   useEffect(() => {
@@ -236,28 +263,7 @@ export default function App() {
       setNewTransactionId(transaction.id);
       setTimeout(() => setNewTransactionId(null), 1000);
 
-      setTransactions((prev) => {
-        const symbolSizes = prev.filter((txn) => txn.symbol === transaction.symbol).slice(0, 25).map((txn) => txn.size);
-        const zScore = computeZScore(symbolSizes, transaction.size);
-        const isWhale = transaction.size >= whaleThreshold * 1000; // Convert to actual shares
-
-        if (isWhale || zScore >= 2.2) {
-          const reason = isWhale ? `Whale print ${formatVolume(transaction.size)} shares` : `Unusual size z-score ${zScore.toFixed(2)}`;
-          setAlerts((prevAlerts) => [
-            {
-              id: `${transaction.id}-ALERT`,
-              symbol: transaction.symbol,
-              direction: transaction.direction,
-              size: transaction.size,
-              reason,
-              timestamp: new Date(),
-            },
-            ...prevAlerts,
-          ].slice(0, 25));
-        }
-
-        return [transaction, ...prev].slice(0, 200);
-      });
+      setTransactions((prev) => [transaction, ...prev].slice(0, 200));
 
       setStockPrices((prev) => ({
         ...prev,
@@ -289,6 +295,39 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [isRunning]);
+
+  useEffect(() => {
+    const transaction = transactions[0];
+    if (!transaction || transaction.id === lastAlertedTransactionId.current) return;
+
+    lastAlertedTransactionId.current = transaction.id;
+    const symbolSizes = transactions
+      .slice(1)
+      .filter((txn) => txn.symbol === transaction.symbol)
+      .slice(0, 25)
+      .map((txn) => txn.size);
+    const zScore = computeZScore(symbolSizes, transaction.size);
+    const isWhale = transaction.size >= whaleThreshold * 1000; // Convert to actual shares
+
+    if (!isWhale && zScore < 2.2) return;
+
+    const reason = isWhale
+      ? `Whale print ${formatVolume(transaction.size)} shares`
+      : `Unusual size z-score ${zScore.toFixed(2)}`;
+    const alert = {
+      id: `${transaction.id}-ALERT`,
+      symbol: transaction.symbol,
+      direction: transaction.direction,
+      size: transaction.size,
+      reason,
+      timestamp: new Date(),
+    };
+
+    setAlerts((prevAlerts) => {
+      if (prevAlerts.some((existing) => existing.id === alert.id)) return prevAlerts;
+      return [alert, ...prevAlerts].slice(0, 25);
+    });
+  }, [transactions, whaleThreshold]);
 
   const filteredTransactions = useMemo(() => {
     const baseFiltered = transactions.filter((transaction) => {
@@ -409,13 +448,12 @@ export default function App() {
             onClick={() => {
               setTransactions([]);
               setAlerts([]);
-              setChartData(
-                Object.fromEntries(
-                  Object.keys(MAG7_STOCKS).map((symbol) => [symbol, generateHistoricalData(symbol, TIMEFRAME_HOURS[timeframe])])
-                )
-              );
+              setChartData(createInitialChartData(timeframe));
+              setStockPrices(createInitialStockPrices());
+              setNewTransactionId(null);
             }}
             className="p-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white transition-all"
+            aria-label="Reset simulation"
             title="Reset simulation"
           >
             <RefreshCw size={16} />
@@ -480,7 +518,7 @@ export default function App() {
               title={name}
             >
               <input type="checkbox" className="sr-only" />
-              <span 
+              <span
                 className="font-bold text-sm"
                 style={{ color: 'var(--color-accent)' }}
               >
@@ -588,7 +626,7 @@ export default function App() {
                   title={name}
                 >
                   <input type="checkbox" className="sr-only" />
-                  <span 
+                  <span
                     className="font-bold text-sm"
                     style={{ color: 'var(--color-accent)' }}
                   >
@@ -833,7 +871,7 @@ export default function App() {
         settings={settings}
         onSettingsChange={(newSettings) => {
           setSettings(newSettings);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+          writePersistedSettings(newSettings);
         }}
       />
     </div>
