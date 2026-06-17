@@ -20,7 +20,7 @@ import {
 import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
 import SettingsModal from './SettingsModal';
 import OptionsDashboard from './OptionsDashboard';
-import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
+import { ScannerView, AlertsView, WatchlistView, TradeIntentView, HealthView } from './ProductionViews';
 import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
 import { computeZScore, rowsToCsv } from './flowEngine';
 
@@ -174,7 +174,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState('ALL');
-  const [viewMode, setViewMode] = useState('dashboard'); // dashboard, scanner, flowmap, alerts, watchlist, replay, admin, health
+  const [viewMode, setViewMode] = useState('dashboard'); // dashboard, intent, scanner, flowmap, alerts, watchlist, replay, admin, health
   const [timeframe, setTimeframe] = useState('1H');
   const [threshold, setThreshold] = useState(1);
   const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
@@ -347,7 +347,7 @@ export default function App() {
 
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
-            {['dashboard', 'options', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
+            {['dashboard', 'intent', 'options', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -527,6 +527,8 @@ export default function App() {
       {/* Main Content Based on View Mode */}
       {viewMode === 'options' ? (
         <OptionsDashboard settings={settings} />
+      ) : viewMode === 'intent' ? (
+        <TradeIntentView />
       ) : viewMode === 'scanner' ? (
         <ScannerView />
       ) : viewMode === 'alerts' ? (

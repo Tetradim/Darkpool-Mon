@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircle, PauseCircle, MessageSquare, Zap } from 'lucide-react';
+import {
+  DEFAULT_TRADE_INTENT_SETTINGS,
+  buildTradeIntentUrl,
+  formatIntentMoney,
+  getIntentTone,
+  summarizePulsePacket,
+} from './tradeIntent';
+
+const TRADE_INTENT_ROUTE = '/darkpool/trade-intent';
 
 // Scanner Table Component
 const ScannerView = () => {
@@ -297,6 +306,260 @@ const WatchlistView = () => {
   );
 };
 
+// Trade Intent Component
+const TradeIntentView = () => {
+  const [controls, setControls] = useState(DEFAULT_TRADE_INTENT_SETTINGS);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const updateControl = (key, value) => {
+    setControls((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const fetchIntent = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const endpoint = buildTradeIntentUrl(controls).replace(TRADE_INTENT_ROUTE, TRADE_INTENT_ROUTE);
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        throw new Error(`Trade intent request failed: ${res.status}`);
+      }
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      setError(err.message || 'Trade intent request failed');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchIntent();
+  }, []);
+
+  const intent = result?.intent;
+  const sentinel = result?.sentinel;
+  const pulsePacket = result?.pulse_packet;
+  const tone = getIntentTone(intent);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-4">
+        <div className="bg-dark-800 rounded-xl p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <Activity size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
+            <span className="text-white font-medium">Trade Intent Controls</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Symbol</span>
+              <input
+                value={controls.symbol}
+                onChange={(event) => updateControl('symbol', event.target.value.toUpperCase())}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Provider</span>
+              <select
+                value={controls.provider}
+                onChange={(event) => updateControl('provider', event.target.value)}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="demo">Demo</option>
+                <option value="finra">FINRA</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="block space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Minimum Score</span>
+              <span className="text-sm font-mono text-white">{controls.minScore}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={controls.minScore}
+              onChange={(event) => updateControl('minScore', Number(event.target.value))}
+              className="w-full"
+            />
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Distance %</span>
+              <input
+                type="number"
+                min="0"
+                step="0.05"
+                value={controls.maxDistancePct}
+                onChange={(event) => updateControl('maxDistancePct', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Min Notional</span>
+              <input
+                type="number"
+                min="0"
+                step="1000000"
+                value={controls.minNotional}
+                onChange={(event) => updateControl('minNotional', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Freshness Minutes</span>
+              <input
+                type="number"
+                min="0"
+                step="5"
+                value={controls.maxFreshnessMinutes}
+                onChange={(event) => updateControl('maxFreshnessMinutes', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['allowBuy', 'Buy'],
+              ['allowSell', 'Sell'],
+              ['includePulsePacket', 'Pulse'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => updateControl(key, !controls[key])}
+                className={`px-3 py-2 rounded-lg border text-sm transition-all ${
+                  controls[key]
+                    ? 'border-accent-cyan bg-dark-700 text-white'
+                    : 'border-dark-600 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchIntent}
+            disabled={loading}
+            className="w-full px-4 py-2 rounded-lg bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 disabled:opacity-60"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            {loading ? 'Refreshing...' : 'Refresh Intent'}
+          </button>
+        </div>
+
+        <div className="bg-dark-800 rounded-xl p-4 space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className={`px-3 py-1 rounded-lg border text-sm font-medium ${tone.badgeClass}`}>
+              {tone.label}
+            </span>
+            <span className="text-white font-mono">{intent?.symbol || controls.symbol}</span>
+            <span className="text-sm text-gray-400">{result?.provider || controls.provider}</span>
+            {sentinel && (
+              <span className={`ml-auto text-xs px-2 py-1 rounded ${
+                sentinel.status === 'approved' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
+              }`}>
+                Sentinel {sentinel.status}
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
+          {!intent && !error ? (
+            <div className="rounded-lg bg-dark-700 p-6 text-center text-gray-400">
+              {loading ? 'Loading trade intent...' : 'No trade intent loaded'}
+            </div>
+          ) : intent ? (
+            <>
+              <div className="rounded-lg bg-dark-700 p-4">
+                <p className="text-sm text-gray-200 leading-6">{intent.readable_summary}</p>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-dark-700 rounded-lg p-3">
+                  <div className="text-xs text-gray-500 mb-1">Confidence</div>
+                  <div className="text-xl font-mono text-white">{intent.confidence.toFixed(1)}</div>
+                </div>
+                <div className="bg-dark-700 rounded-lg p-3">
+                  <div className="text-xs text-gray-500 mb-1">Level</div>
+                  <div className="text-xl font-mono text-white">${intent.level_price.toFixed(2)}</div>
+                </div>
+                <div className="bg-dark-700 rounded-lg p-3">
+                  <div className="text-xs text-gray-500 mb-1">Distance</div>
+                  <div className="text-xl font-mono text-white">{intent.distance_pct.toFixed(2)}%</div>
+                </div>
+                <div className="bg-dark-700 rounded-lg p-3">
+                  <div className="text-xs text-gray-500 mb-1">Notional</div>
+                  <div className="text-xl font-mono text-white">{formatIntentMoney(intent.notional)}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-dark-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle size={14} className="text-accent-yellow" />
+                    <span className="text-white font-medium">Blockers</span>
+                  </div>
+                  {intent.blockers.length === 0 ? (
+                    <p className="text-sm text-gray-400">No active blockers.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {intent.blockers.map((blocker) => (
+                        <li key={blocker} className="text-sm text-yellow-200">{blocker}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="bg-dark-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle size={14} className="text-accent-green" />
+                    <span className="text-white font-medium">Reasons</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {intent.reasons.map((reason) => (
+                      <li key={reason} className="text-sm text-gray-300">{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-dark-700 rounded-lg p-4">
+                  <div className="text-xs text-gray-500 mb-2">Sentinel Edge</div>
+                  <p className="text-sm text-gray-200">{sentinel?.reasons?.join(' ') || 'No Sentinel decision.'}</p>
+                </div>
+
+                <div className="bg-dark-700 rounded-lg p-4">
+                  <div className="text-xs text-gray-500 mb-2">Pulse</div>
+                  <p className="text-sm text-gray-200">{summarizePulsePacket(pulsePacket)}</p>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // System Health Component
 const HealthView = () => {
   const [health, setHealth] = useState(null);
@@ -388,5 +651,5 @@ const HealthView = () => {
   );
 };
 
-export { ScannerView, AlertsView, WatchlistView, HealthView };
-export default { ScannerView, AlertsView, WatchlistView, HealthView };
+export { ScannerView, AlertsView, WatchlistView, TradeIntentView, HealthView };
+export default { ScannerView, AlertsView, WatchlistView, TradeIntentView, HealthView };

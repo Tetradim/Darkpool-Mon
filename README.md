@@ -7,7 +7,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 ## Current Capabilities
 
 - FastAPI backend with health checks, provider discovery, compatibility routes, and dark pool intelligence endpoints.
-- React dashboard with MAG7 simulation, live feed, scanner, options dashboard, flow map, alerts, watchlists, replay, admin, settings, CSV export, and persisted filters.
+- React dashboard with MAG7 simulation, live feed, trade-intent review, scanner, options dashboard, flow map, alerts, watchlists, replay, admin, settings, CSV export, and persisted filters.
 - Discord bot with slash commands for dark pool level summaries and user-configured whale thresholds.
 - Offline `demo` provider so the app can run without paid data keys.
 - FINRA provider support for public weekly ATS/OTC aggregate data.
@@ -54,6 +54,8 @@ npm run dev
 ```
 
 Open http://localhost:5173.
+
+The Vite dev server proxies API-backed views to the FastAPI backend on `http://127.0.0.1:8000`.
 
 Run the Discord bot:
 
@@ -157,6 +159,8 @@ Discord integration:
 ## Trade Intent Gate
 
 `GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, and allowed buy/sell sides.
+
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, allowed buy/sell sides, and Pulse packet inclusion.
 
 The endpoint returns:
 
