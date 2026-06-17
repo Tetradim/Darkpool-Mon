@@ -571,7 +571,7 @@ git commit -m "refactor: add trade intent pipeline"
 - Modify: `darkpool/trade_pipeline.py`
 - Test: `tests/test_pulse_gateway.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -594,7 +594,7 @@ def test_pulse_gateway_accepts_manual_trade_intent_packet():
     assert packet["requires_manual_execution"] is True
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -608,7 +608,7 @@ Expected:
 ModuleNotFoundError: No module named 'darkpool.pulse_gateway'
 ```
 
-- [ ] **Step 3: Implement `darkpool/pulse_gateway.py`**
+- [x] **Step 3: Implement `darkpool/pulse_gateway.py`**
 
 ```python
 """Pulse packet validation and adapter boundary."""
@@ -635,7 +635,7 @@ class PulseGateway:
         return packet
 ```
 
-- [ ] **Step 4: Use gateway in `trade_pipeline.py`**
+- [x] **Step 4: Use gateway in `trade_pipeline.py`**
 
 ```python
 from .pulse_gateway import PulseGateway
@@ -646,7 +646,7 @@ if include_pulse_packet and sentinel.status == "approved":
     pulse_packet = PulseGateway().validate_packet(prepare_pulse_packet(intent, sentinel))
 ```
 
-- [ ] **Step 5: Run tests to verify GREEN**
+- [x] **Step 5: Run tests to verify GREEN**
 
 Run:
 
@@ -660,7 +660,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add darkpool/pulse_gateway.py darkpool/trade_pipeline.py tests/test_pulse_gateway.py

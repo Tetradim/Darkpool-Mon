@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .market_context import MarketContext, build_market_context
+from .pulse_gateway import PulseGateway
 from .trade_intent import (
     LocalSentinelEdgeAdapter,
     SentinelConfirmation,
@@ -59,7 +60,7 @@ async def build_trade_intent_report(
     sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None
     if include_pulse_packet and sentinel.status == "approved":
-        pulse_packet = prepare_pulse_packet(intent, sentinel)
+        pulse_packet = PulseGateway().validate_packet(prepare_pulse_packet(intent, sentinel))
 
     return TradeIntentReport(
         context=context,
