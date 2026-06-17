@@ -32,6 +32,7 @@ class TradingPreferences(BaseModel):
     min_quality_support_flags: int = Field(default=0, ge=0)
     min_source_confirmation_weight: float = Field(default=0.0, ge=0, le=1)
     require_complete_source_coverage: bool = True
+    source_coverage_override_reason: str | None = Field(default=None, max_length=500)
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])
 
@@ -98,6 +99,7 @@ class TradeIntent(BaseModel):
     source_confirmation_weight: float
     source_adjusted_confidence: float
     missing_required_source_coverage: list[str] = Field(default_factory=list)
+    source_coverage_override_reason: str | None = None
     risk_plan: RiskPlan | None = None
     confidence_breakdown: list[ConfidenceComponent]
     quality_flags: list[QualityFlag]
@@ -387,11 +389,25 @@ def _apply_source_confirmation_gate(
             "required source coverage is incomplete; configure price/NBBO, liquidity/depth, halt/LULD, "
             f"and material-news sources before Pulse{suffix}"
         )
+    if (
+        not preferences.require_complete_source_coverage
+        and not source_coverage_complete
+        and missing_required_source_coverage
+        and not _normalized_source_coverage_override_reason(preferences)
+    ):
+        blockers.append(
+            "source coverage override reason is required when required source coverage is incomplete"
+        )
 
 
 def _source_adjusted_confidence(raw_confidence: float, source_confirmation_weight: float) -> float:
     capped_weight = min(1.0, max(0.0, source_confirmation_weight))
     return round(raw_confidence * capped_weight, 2)
+
+
+def _normalized_source_coverage_override_reason(preferences: TradingPreferences) -> str | None:
+    reason = (preferences.source_coverage_override_reason or "").strip()
+    return reason or None
 
 
 def build_trade_intent(
@@ -428,6 +444,7 @@ def build_trade_intent(
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
     source_weight = round(min(1.0, max(0.0, source_confirmation_weight)), 2)
+    source_coverage_override_reason = _normalized_source_coverage_override_reason(preferences)
     _apply_source_confirmation_gate(
         source_weight,
         source_coverage_complete,
@@ -473,6 +490,9 @@ def build_trade_intent(
         missing_required_source_coverage=missing_source_coverage
         if preferences.require_complete_source_coverage and not source_coverage_complete
         else [],
+        source_coverage_override_reason=source_coverage_override_reason
+        if not preferences.require_complete_source_coverage and not source_coverage_complete
+        else None,
         risk_plan=risk_plan,
         confidence_breakdown=confidence_breakdown,
         quality_flags=quality_flags,
@@ -616,6 +636,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "confidence": intent.confidence,
         "source_confirmation_weight": intent.source_confirmation_weight,
         "source_adjusted_confidence": intent.source_adjusted_confidence,
+        "source_coverage_override_reason": intent.source_coverage_override_reason,
         "level_price": intent.level_price,
         "spot_price": intent.spot_price,
         "distance_pct": intent.distance_pct,

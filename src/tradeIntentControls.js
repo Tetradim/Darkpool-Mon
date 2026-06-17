@@ -13,6 +13,7 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   minQualitySupportFlags: 0,
   minSourceConfirmationWeight: 0,
   requireSourceCoverageComplete: true,
+  sourceCoverageOverrideReason: '',
   priceConfirmed: false,
   liquidityConfirmed: false,
   newsChecked: false,
@@ -71,6 +72,10 @@ export const buildTradeIntentUrl = (settings = {}) => {
     String(clampNumber(merged.minSourceConfirmationWeight, DEFAULT_TRADE_INTENT_SETTINGS.minSourceConfirmationWeight, 0, 1))
   );
   params.set('require_source_coverage_complete', String(Boolean(merged.requireSourceCoverageComplete)));
+  const sourceCoverageOverrideReason = String(merged.sourceCoverageOverrideReason || '').trim();
+  if (sourceCoverageOverrideReason) {
+    params.set('source_coverage_override_reason', sourceCoverageOverrideReason);
+  }
   params.set('price_confirmed', String(Boolean(merged.priceConfirmed)));
   params.set('liquidity_confirmed', String(Boolean(merged.liquidityConfirmed)));
   params.set('news_checked', String(Boolean(merged.newsChecked)));

@@ -15,6 +15,7 @@ async def test_trade_pipeline_prepares_pulse_only_after_sentinel_approval():
             max_distance_pct=2,
             min_notional=1_000_000,
             require_complete_source_coverage=False,
+            source_coverage_override_reason="Manual vendor check completed before demo Pulse review.",
         ),
         confirmation=SentinelConfirmation(
             price_confirmed=True,
@@ -33,6 +34,8 @@ async def test_trade_pipeline_prepares_pulse_only_after_sentinel_approval():
     assert report.pulse_status.status == "prepared"
     assert report.pulse_status.sentinel_status == "approved"
     assert report.pulse_packet["requires_manual_execution"] is True
+    assert report.intent.source_coverage_override_reason == "Manual vendor check completed before demo Pulse review."
+    assert report.pulse_packet["source_coverage_override_reason"] == "Manual vendor check completed before demo Pulse review."
     assert report.pulse_packet["required_source_coverage_complete"] is False
     assert report.pulse_packet["missing_required_source_coverage"] == [
         "Real-time price/NBBO confirmation",
@@ -112,6 +115,7 @@ async def test_trade_pipeline_marks_pulse_not_requested_when_packet_is_disabled(
             max_distance_pct=2,
             min_notional=1_000_000,
             require_complete_source_coverage=False,
+            source_coverage_override_reason="Manual vendor check completed before review.",
         ),
         confirmation=SentinelConfirmation(
             price_confirmed=True,

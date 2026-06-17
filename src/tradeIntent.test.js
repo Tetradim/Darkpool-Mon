@@ -33,6 +33,7 @@ describe('buildTradeIntentUrl', () => {
       minQualitySupportFlags: 1,
       minSourceConfirmationWeight: 0.35,
       requireSourceCoverageComplete: true,
+      sourceCoverageOverrideReason: 'manual-check',
       priceConfirmed: true,
       liquidityConfirmed: false,
       newsChecked: true,
@@ -44,7 +45,7 @@ describe('buildTradeIntentUrl', () => {
     });
 
     expect(url).toBe(
-      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&max_quality_caution_flags=2&min_quality_support_flags=1&min_source_confirmation_weight=0.35&require_source_coverage_complete=true&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
+      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&max_quality_caution_flags=2&min_quality_support_flags=1&min_source_confirmation_weight=0.35&require_source_coverage_complete=true&source_coverage_override_reason=manual-check&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
     );
   });
 
@@ -122,11 +123,12 @@ describe('summarizePulsePacket', () => {
         confidence: 91.25,
         source_adjusted_confidence: 68.5,
         required_source_coverage_complete: false,
+        source_coverage_override_reason: 'Manual vendor check completed before demo Pulse review.',
         missing_required_source_coverage: ['Real-time price/NBBO confirmation', 'Trading halt/LULD blocker'],
         risk_plan: { max_risk_dollars: 500, position_notional: 50000 },
       })
     ).toBe(
-      'Pulse packet prepared for AAPL BUY at 91.3 raw / 68.5 source-adjusted confidence with $500 max risk and $50.00K planned notional; manual execution still required. Source coverage incomplete: Missing Real-time price/NBBO confirmation; Missing Trading halt/LULD blocker.'
+      'Pulse packet prepared for AAPL BUY at 91.3 raw / 68.5 source-adjusted confidence with $500 max risk and $50.00K planned notional; manual execution still required. Source coverage incomplete: Missing Real-time price/NBBO confirmation; Missing Trading halt/LULD blocker. Override reason: Manual vendor check completed before demo Pulse review.'
     );
   });
 });

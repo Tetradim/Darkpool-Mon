@@ -148,6 +148,15 @@ export const TradeIntentView = () => {
             ))}
           </div>
 
+          <label className="space-y-1 block">
+            <span className="text-xs text-gray-400">Source Override Reason</span>
+            <input
+              value={controls.sourceCoverageOverrideReason}
+              onChange={(event) => updateControl('sourceCoverageOverrideReason', event.target.value)}
+              className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white"
+            />
+          </label>
+
           <div className="grid grid-cols-3 gap-2">
             {CONFIRMATION_TOGGLES.map(([key, label]) => (
               <button

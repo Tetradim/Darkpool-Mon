@@ -50,10 +50,14 @@ const formatPreparedPulseCoverageWarning = (packet) => {
     return '';
   }
   const missingCoverage = formatMissingSourceCoverage(packet.missing_required_source_coverage);
+  const overrideReason = String(packet.source_coverage_override_reason || '')
+    .trim()
+    .replace(/\.+$/, '');
+  const overrideSummary = overrideReason ? ` Override reason: ${overrideReason}.` : '';
   if (missingCoverage.length === 0) {
-    return ' Source coverage incomplete.';
+    return ` Source coverage incomplete.${overrideSummary}`;
   }
-  return ` Source coverage incomplete: ${missingCoverage.join('; ')}.`;
+  return ` Source coverage incomplete: ${missingCoverage.join('; ')}.${overrideSummary}`;
 };
 
 export const summarizePulsePacket = (packet, pulseStatus = null) => {

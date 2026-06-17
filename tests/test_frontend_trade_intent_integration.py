@@ -22,6 +22,7 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Min Support Flags" in trade_intent_view
     assert "Min Source Weight" in trade_intent_view
     assert "Source Gate" in trade_intent_view
+    assert "Source Override Reason" in trade_intent_view
     assert "formatQualityFlags" in trade_intent_summary
     assert "Signal Quality Flags" in trade_intent_summary
     assert "formatMissingSourceCoverage" in trade_intent_summary

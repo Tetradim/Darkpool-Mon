@@ -258,6 +258,24 @@ def test_trade_intent_keeps_risk_plan_when_blocked_by_source_coverage_only():
     assert any("required source coverage is incomplete" in blocker for blocker in intent.blockers)
 
 
+def test_trade_intent_requires_override_reason_when_source_gate_is_disabled_with_missing_coverage():
+    intent = build_trade_intent(
+        _score(score=82.0),
+        TradingPreferences(
+            min_score=80,
+            max_distance_pct=1.0,
+            min_notional=50_000_000,
+            require_complete_source_coverage=False,
+        ),
+        source_coverage_complete=False,
+        missing_required_source_coverage=["Trading halt/LULD blocker"],
+    )
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert any("source coverage override reason is required" in blocker for blocker in intent.blockers)
+
+
 def test_trade_intent_risk_plan_uses_share_rounded_notional_and_entry_stop_loss():
     intent = build_trade_intent(
         _score(score=82.0),
@@ -517,6 +535,7 @@ def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
         "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
         "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
         "&require_source_coverage_complete=false"
+        "&source_coverage_override_reason=Manual%20vendor%20check%20completed"
         "&price_confirmed=false&liquidity_confirmed=true&news_checked=true"
     )
 
@@ -529,6 +548,27 @@ def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
     assert body["pulse_status"]["sentinel_status"] == "rejected"
     assert any("price confirmation" in reason for reason in body["pulse_status"]["reasons"])
     assert any("price confirmation" in reason for reason in body["sentinel"]["reasons"])
+
+
+def test_trade_intent_endpoint_allows_source_coverage_override_with_reason():
+    client = TestClient(server.app)
+    reason = "Manual vendor check completed before demo Pulse review."
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&require_source_coverage_complete=false"
+        f"&source_coverage_override_reason={reason}"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=20"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["preferences"]["source_coverage_override_reason"] == reason
+    assert body["intent"]["source_coverage_override_reason"] == reason
+    assert body["pulse_status"]["status"] == "prepared"
+    assert body["pulse_packet"]["source_coverage_override_reason"] == reason
+    assert body["pulse_packet"]["requires_manual_execution"] is True
 
 
 def test_trade_intent_endpoint_exposes_quality_gate_customization():
