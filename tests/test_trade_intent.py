@@ -276,8 +276,9 @@ def test_trade_intent_risk_plan_uses_share_rounded_notional_and_entry_stop_loss(
     assert intent.risk_plan.entry_price == 179.4
     assert intent.risk_plan.estimated_shares == 278
     assert intent.risk_plan.position_notional == 49873.2
+    assert intent.risk_plan.target_price == 181.8
     assert intent.risk_plan.estimated_loss_dollars == 333.6
-    assert intent.risk_plan.estimated_gain_dollars == 1167.6
+    assert intent.risk_plan.estimated_gain_dollars == 667.2
 
 
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
@@ -304,7 +305,7 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert intent.action == "BUY"
     assert intent.risk_plan is not None
     assert intent.risk_plan.stop_price == 178.2
-    assert intent.risk_plan.target_price == 183.6
+    assert intent.risk_plan.target_price == 181.8
     assert intent.risk_plan.position_notional <= 100_000
     assert sentinel.status == "approved"
     assert [check.name for check in sentinel.checks] == [

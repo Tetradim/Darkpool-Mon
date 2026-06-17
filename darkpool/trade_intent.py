@@ -148,15 +148,16 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
     stop_fraction = preferences.stop_distance_pct / 100
     if action == "BUY":
         stop_price = score.level_price * (1 - stop_fraction)
-        target_price = score.level_price * (1 + stop_fraction * preferences.reward_risk_ratio)
     else:
         stop_price = score.level_price * (1 + stop_fraction)
-        target_price = score.level_price * (1 - stop_fraction * preferences.reward_risk_ratio)
 
     risk_per_share = abs(score.spot_price - stop_price)
     if risk_per_share <= 0:
         blockers.append("stop price equals entry price and produces zero risk per share")
         return None
+
+    target_distance = risk_per_share * preferences.reward_risk_ratio
+    target_price = score.spot_price + target_distance if action == "BUY" else score.spot_price - target_distance
 
     risk_limited_shares = floor(preferences.max_risk_dollars / risk_per_share)
     notional_limited_shares = floor(preferences.max_position_notional / score.spot_price)
