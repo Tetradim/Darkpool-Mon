@@ -24,6 +24,8 @@ describe('buildTradeIntentUrl', () => {
       stopDistancePct: 1.2,
       rewardRiskRatio: 2.5,
       maxPositionNotional: 40000,
+      maxQualityCautionFlags: 2,
+      minQualitySupportFlags: 1,
       priceConfirmed: true,
       liquidityConfirmed: false,
       newsChecked: true,
@@ -35,7 +37,7 @@ describe('buildTradeIntentUrl', () => {
     });
 
     expect(url).toBe(
-      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
+      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&max_quality_caution_flags=2&min_quality_support_flags=1&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
     );
   });
 });

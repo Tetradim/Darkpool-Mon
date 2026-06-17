@@ -478,6 +478,30 @@ const TradeIntentView = () => {
                 className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
               />
             </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Max Caution Flags</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={controls.maxQualityCautionFlags}
+                onChange={(event) => updateControl('maxQualityCautionFlags', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Min Support Flags</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={controls.minQualitySupportFlags}
+                onChange={(event) => updateControl('minQualitySupportFlags', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
           </div>
 
           <div className="grid grid-cols-3 gap-2">

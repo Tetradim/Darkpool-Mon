@@ -685,6 +685,8 @@ async def get_darkpool_trade_intent(
     stop_distance_pct: float = Query(1.0, ge=0, le=20),
     reward_risk_ratio: float = Query(2.0, ge=0),
     max_position_notional: float = Query(50_000.0, ge=0),
+    max_quality_caution_flags: int = Query(99, ge=0),
+    min_quality_support_flags: int = Query(0, ge=0),
     price_confirmed: bool = Query(False),
     liquidity_confirmed: bool = Query(False),
     news_checked: bool = Query(False),
@@ -713,6 +715,8 @@ async def get_darkpool_trade_intent(
         stop_distance_pct=stop_distance_pct,
         reward_risk_ratio=reward_risk_ratio,
         max_position_notional=max_position_notional,
+        max_quality_caution_flags=max_quality_caution_flags,
+        min_quality_support_flags=min_quality_support_flags,
         allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
     )
     confirmation = SentinelConfirmation(

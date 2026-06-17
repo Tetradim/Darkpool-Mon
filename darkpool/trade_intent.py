@@ -27,6 +27,8 @@ class TradingPreferences(BaseModel):
     stop_distance_pct: float = Field(default=1.0, ge=0)
     reward_risk_ratio: float = Field(default=2.0, ge=0)
     max_position_notional: float = Field(default=50_000.0, ge=0)
+    max_quality_caution_flags: int = Field(default=99, ge=0)
+    min_quality_support_flags: int = Field(default=0, ge=0)
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])
 
@@ -320,6 +322,20 @@ def _build_quality_flags(score: ConfluenceScore, action: TradeAction) -> list[Qu
     return flags
 
 
+def _apply_quality_gates(quality_flags: list[QualityFlag], preferences: TradingPreferences, blockers: list[str]) -> None:
+    caution_count = sum(1 for flag in quality_flags if flag.severity == "caution")
+    support_count = sum(1 for flag in quality_flags if flag.severity == "support")
+
+    if caution_count > preferences.max_quality_caution_flags:
+        blockers.append(
+            f"quality caution flags {caution_count} exceed user maximum {preferences.max_quality_caution_flags}"
+        )
+    if support_count < preferences.min_quality_support_flags:
+        blockers.append(
+            f"quality support flags {support_count} are below user minimum {preferences.min_quality_support_flags}"
+        )
+
+
 def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences | None = None) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -344,9 +360,10 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
     if candidate_action in {"BUY", "SELL"} and candidate_action not in preferences.allowed_actions:
         blockers.append(f"{candidate_action} is not enabled in user allowed actions")
 
+    quality_flags = _build_quality_flags(score, candidate_action)
+    _apply_quality_gates(quality_flags, preferences, blockers)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
-    quality_flags = _build_quality_flags(score, candidate_action)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
     action: TradeAction = "HOLD" if status == "blocked" else candidate_action
     if status == "blocked":

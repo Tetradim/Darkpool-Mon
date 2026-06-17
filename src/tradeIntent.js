@@ -9,6 +9,8 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   stopDistancePct: 1,
   rewardRiskRatio: 2,
   maxPositionNotional: 50000,
+  maxQualityCautionFlags: 99,
+  minQualitySupportFlags: 0,
   priceConfirmed: false,
   liquidityConfirmed: false,
   newsChecked: false,
@@ -48,6 +50,14 @@ export const buildTradeIntentUrl = (settings = {}) => {
   params.set(
     'max_position_notional',
     String(asNumber(merged.maxPositionNotional, DEFAULT_TRADE_INTENT_SETTINGS.maxPositionNotional))
+  );
+  params.set(
+    'max_quality_caution_flags',
+    String(asNumber(merged.maxQualityCautionFlags, DEFAULT_TRADE_INTENT_SETTINGS.maxQualityCautionFlags))
+  );
+  params.set(
+    'min_quality_support_flags',
+    String(asNumber(merged.minQualitySupportFlags, DEFAULT_TRADE_INTENT_SETTINGS.minQualitySupportFlags))
   );
   params.set('price_confirmed', String(Boolean(merged.priceConfirmed)));
   params.set('liquidity_confirmed', String(Boolean(merged.liquidityConfirmed)));

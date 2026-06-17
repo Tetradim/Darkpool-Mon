@@ -145,6 +145,62 @@ def test_trade_intent_marks_supporting_conflicting_and_missing_quality_flags():
     )
 
 
+def test_trade_intent_blocks_when_quality_flags_exceed_user_caution_limit():
+    bearish_flow = OptionsFlowSignal(symbol="AAPL", direction="BEARISH", premium=1_200_000, contracts=100)
+    exposure = ExposureNode(
+        symbol="AAPL",
+        price=180.1,
+        exposure=-750_000,
+        kind="GEX",
+        expires_at=None,
+        updated_at=datetime.now(timezone.utc),
+    )
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        max_quality_caution_flags=0,
+    )
+
+    intent = build_trade_intent(
+        _score(
+            score=82.0,
+            direction="BULLISH",
+            level=_level(side_bias="SELL"),
+            exposure_nodes=[exposure],
+            options_flow=[bearish_flow],
+        ),
+        preferences,
+    )
+    sentinel = LocalSentinelEdgeAdapter().review(
+        intent,
+        SentinelConfirmation(price_confirmed=True, liquidity_confirmed=True, news_checked=True),
+    )
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert any("quality caution flags" in blocker and "exceed user maximum 0" in blocker for blocker in intent.blockers)
+    assert sentinel.status == "rejected"
+
+
+def test_trade_intent_blocks_when_quality_support_requirement_is_not_met():
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        min_quality_support_flags=2,
+    )
+
+    intent = build_trade_intent(
+        _score(score=82.0, direction="BULLISH", level=_level(side_bias="BUY"), options_flow=[], exposure_nodes=[]),
+        preferences,
+    )
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert any("quality support flags" in blocker and "below user minimum 2" in blocker for blocker in intent.blockers)
+
+
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
     preferences = TradingPreferences(
         min_score=80,
@@ -267,6 +323,8 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     body = response.json()
     assert body["symbol"] == "AAPL"
     assert body["preferences"]["min_score"] == 60.0
+    assert body["preferences"]["max_quality_caution_flags"] == 99
+    assert body["preferences"]["min_quality_support_flags"] == 0
     assert body["intent"]["status"] in {"ready_for_sentinel", "blocked"}
     assert "readable_summary" in body["intent"]
     assert body["intent"]["confidence_breakdown"]
@@ -297,3 +355,23 @@ def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
     assert body["sentinel"]["status"] == "rejected"
     assert body["pulse_packet"] is None
     assert any("price confirmation" in reason for reason in body["sentinel"]["reasons"])
+
+
+def test_trade_intent_endpoint_exposes_quality_gate_customization():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true"
+        "&max_quality_caution_flags=99&min_quality_support_flags=99"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["preferences"]["max_quality_caution_flags"] == 99
+    assert body["preferences"]["min_quality_support_flags"] == 99
+    assert body["intent"]["status"] == "blocked"
+    assert body["sentinel"]["status"] == "rejected"
+    assert body["pulse_packet"] is None
+    assert any("quality support flags" in blocker for blocker in body["intent"]["blockers"])
