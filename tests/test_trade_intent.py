@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server
-from darkpool.models import ConfluenceScore, DarkpoolLevel
+from darkpool.models import ConfluenceScore, DarkpoolLevel, ExposureNode, OptionsFlowSignal
 from darkpool.trade_intent import (
     LocalSentinelEdgeAdapter,
     SentinelConfirmation,
@@ -36,6 +36,8 @@ def _score(
     direction: str = "BULLISH",
     distance_pct: float = 0.35,
     level: DarkpoolLevel | None = None,
+    exposure_nodes: list[ExposureNode] | None = None,
+    options_flow: list[OptionsFlowSignal] | None = None,
 ) -> ConfluenceScore:
     return ConfluenceScore(
         symbol="AAPL",
@@ -45,8 +47,8 @@ def _score(
         direction=direction,
         distance_pct=distance_pct,
         level=level or _level(),
-        exposure_nodes=[],
-        options_flow=[],
+        exposure_nodes=exposure_nodes or [],
+        options_flow=options_flow or [],
         reasons=["dark pool cluster strength 92.0", "fresh level", "options flow confirmation present"],
     )
 
@@ -63,6 +65,30 @@ def test_trade_intent_blocks_when_user_thresholds_are_not_met():
     assert any("farther than allowed" in blocker for blocker in intent.blockers)
     assert any("below user minimum notional" in blocker for blocker in intent.blockers)
     assert intent.readable_summary.startswith("AAPL blocked")
+
+
+def test_trade_intent_includes_confidence_breakdown_for_operator_readability():
+    node = ExposureNode(
+        symbol="AAPL",
+        price=180.1,
+        exposure=1_500_000,
+        kind="GEX",
+        expires_at=None,
+        updated_at=datetime.now(timezone.utc),
+    )
+    flow = OptionsFlowSignal(symbol="AAPL", direction="BULLISH", premium=1_400_000, contracts=250)
+    intent = build_trade_intent(
+        _score(score=80.0, exposure_nodes=[node], options_flow=[flow]),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+    )
+
+    names = [component.name for component in intent.confidence_breakdown]
+    assert "Dark pool level" in names
+    assert "Price proximity" in names
+    assert "Exposure alignment" in names
+    assert "Options flow" in names
+    assert sum(component.contribution for component in intent.confidence_breakdown) >= intent.confidence
+    assert all(component.explanation for component in intent.confidence_breakdown)
 
 
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
@@ -188,6 +214,8 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["preferences"]["min_score"] == 60.0
     assert body["intent"]["status"] in {"ready_for_sentinel", "blocked"}
     assert "readable_summary" in body["intent"]
+    assert body["intent"]["confidence_breakdown"]
+    assert body["intent"]["confidence_breakdown"][0]["name"] == "Dark pool level"
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"
         assert body["pulse_packet"]["requires_manual_execution"] is True

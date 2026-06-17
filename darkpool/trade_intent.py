@@ -44,6 +44,13 @@ class RiskPlan(BaseModel):
     notes: list[str]
 
 
+class ConfidenceComponent(BaseModel):
+    name: str
+    contribution: float
+    max_contribution: float
+    explanation: str
+
+
 class SentinelConfirmation(BaseModel):
     price_confirmed: bool = False
     liquidity_confirmed: bool = False
@@ -67,6 +74,7 @@ class TradeIntent(BaseModel):
     reasons: list[str]
     blockers: list[str]
     risk_plan: RiskPlan | None = None
+    confidence_breakdown: list[ConfidenceComponent]
 
 
 class SentinelDecision(BaseModel):
@@ -147,6 +155,54 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
     )
 
 
+def _build_confidence_breakdown(score: ConfluenceScore) -> list[ConfidenceComponent]:
+    directional_flows = [flow for flow in score.options_flow if flow.direction in {"BULLISH", "BEARISH"}]
+    options_premium = sum(flow.premium for flow in directional_flows)
+    exposure_total = sum(abs(node.exposure) for node in score.exposure_nodes)
+    price_proximity = 12.0 if any("spot is within" in reason for reason in score.reasons) or score.distance_pct <= 1.0 else 0.0
+    clustered = 5.0 if score.level.print_count >= 3 else 0.0
+    fresh = 5.0 if score.level.freshness_minutes <= 60 else 0.0
+
+    return [
+        ConfidenceComponent(
+            name="Dark pool level",
+            contribution=round(min(55.0, score.level.strength_score * 0.55), 2),
+            max_contribution=55.0,
+            explanation=f"cluster strength {score.level.strength_score:.1f} from {score.level.print_count} print(s)",
+        ),
+        ConfidenceComponent(
+            name="Price proximity",
+            contribution=round(price_proximity, 2),
+            max_contribution=12.0,
+            explanation=f"spot is {score.distance_pct:.2f}% from the level",
+        ),
+        ConfidenceComponent(
+            name="Exposure alignment",
+            contribution=round(min(20.0, exposure_total / 250_000), 2),
+            max_contribution=20.0,
+            explanation=f"{len(score.exposure_nodes)} nearby exposure node(s)",
+        ),
+        ConfidenceComponent(
+            name="Options flow",
+            contribution=round(min(13.0, options_premium / 350_000), 2),
+            max_contribution=13.0,
+            explanation=f"{len(directional_flows)} directional flow print(s)",
+        ),
+        ConfidenceComponent(
+            name="Print clustering",
+            contribution=clustered,
+            max_contribution=5.0,
+            explanation=f"{score.level.print_count} print(s) in the level cluster",
+        ),
+        ConfidenceComponent(
+            name="Freshness",
+            contribution=fresh,
+            max_contribution=5.0,
+            explanation=f"latest level print age {score.level.freshness_minutes:.1f} minute(s)",
+        ),
+    ]
+
+
 def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences | None = None) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -172,6 +228,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
         blockers.append(f"{candidate_action} is not enabled in user allowed actions")
 
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
+    confidence_breakdown = _build_confidence_breakdown(score)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
     action: TradeAction = "HOLD" if status == "blocked" else candidate_action
     if status == "blocked":
@@ -201,6 +258,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
         reasons=score.reasons,
         blockers=blockers,
         risk_plan=risk_plan,
+        confidence_breakdown=confidence_breakdown,
     )
 
 
@@ -272,6 +330,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         else None,
         "requires_manual_execution": True,
         "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
+        "confidence_breakdown": [component.model_dump(mode="json") for component in intent.confidence_breakdown],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "reasons": intent.reasons,
     }

@@ -4,6 +4,7 @@ import {
   DEFAULT_TRADE_INTENT_SETTINGS,
   buildTradeIntentUrl,
   formatConfirmationSummary,
+  formatConfidenceBreakdown,
   formatIntentMoney,
   formatRiskPlanSummary,
   getIntentTone,
@@ -605,6 +606,17 @@ const TradeIntentView = () => {
                 <div className="bg-dark-700 rounded-lg p-3">
                   <div className="text-xs text-gray-500 mb-1">Notional</div>
                   <div className="text-xl font-mono text-white">{formatIntentMoney(intent.notional)}</div>
+                </div>
+              </div>
+
+              <div className="bg-dark-700 rounded-lg p-4">
+                <div className="text-xs text-gray-500 mb-3">Confidence Breakdown</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {formatConfidenceBreakdown(intent.confidence_breakdown).map((line) => (
+                    <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
+                      {line}
+                    </div>
+                  ))}
                 </div>
               </div>
 

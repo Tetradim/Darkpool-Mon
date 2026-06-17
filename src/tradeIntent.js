@@ -131,6 +131,18 @@ export const formatConfirmationSummary = (confirmation) => {
   ).toFixed(0)} bps.`;
 };
 
+export const formatConfidenceBreakdown = (breakdown) => {
+  if (!Array.isArray(breakdown) || breakdown.length === 0) {
+    return ['Confidence breakdown unavailable.'];
+  }
+  return breakdown.map(
+    (component) =>
+      `${component.name}: ${Number(component.contribution).toFixed(1)}/${Number(component.max_contribution).toFixed(
+        0
+      )} - ${component.explanation}`
+  );
+};
+
 export const formatIntentMoney = (value) => {
   const amount = Number(value || 0);
   if (Math.abs(amount) >= 1_000_000_000) {

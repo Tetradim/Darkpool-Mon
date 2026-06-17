@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTradeIntentUrl,
   formatConfirmationSummary,
+  formatConfidenceBreakdown,
   formatRiskPlanSummary,
   formatIntentMoney,
   getIntentTone,
@@ -103,6 +104,24 @@ describe('formatConfirmationSummary', () => {
         max_spread_bps: 18,
       })
     ).toBe('Price confirmed, liquidity confirmed, news checked, spread 7/18 bps.');
+  });
+});
+
+describe('formatConfidenceBreakdown', () => {
+  it('summarizes missing breakdowns as unavailable', () => {
+    expect(formatConfidenceBreakdown(null)).toEqual(['Confidence breakdown unavailable.']);
+  });
+
+  it('formats named score components for operator scanning', () => {
+    expect(
+      formatConfidenceBreakdown([
+        { name: 'Dark pool level', contribution: 50.6, max_contribution: 55, explanation: 'level strength 92.0' },
+        { name: 'Price proximity', contribution: 12, max_contribution: 12, explanation: 'spot within range' },
+      ])
+    ).toEqual([
+      'Dark pool level: 50.6/55 - level strength 92.0',
+      'Price proximity: 12.0/12 - spot within range',
+    ]);
   });
 });
 

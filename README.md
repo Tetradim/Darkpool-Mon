@@ -15,6 +15,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Heatseeker-style context concepts: king node, floor, ceiling, gatekeepers, air pockets, and confluence scoring.
 - Alert candidate generation with severity, reasons, score, notional, and deduplication.
 - Trade-intent gate with user-adjustable score, distance, notional, freshness, and risk controls before Sentinel Edge confirmation and Pulse packet preparation.
+- Confidence attribution for trade intents, showing dark pool level strength, price proximity, exposure alignment, options flow, print clustering, and freshness contributions.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
 
 ## Production Posture
@@ -165,6 +166,7 @@ The React dashboard exposes the same workflow in the `Intent` view, with control
 The endpoint returns:
 
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
+- `intent.confidence_breakdown`: component-level score attribution for operator review before confirmation.
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
 - `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent.
