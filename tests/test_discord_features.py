@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 import server
 from darkpool.command_service import (
@@ -12,8 +13,9 @@ from darkpool.discord_formatting import summary_to_embed
 from darkpool.subscriptions import SubscriptionStore
 
 
-def test_command_service_builds_darkpool_summary():
-    summary = build_darkpool_summary("AAPL", provider="demo")
+@pytest.mark.asyncio
+async def test_command_service_builds_darkpool_summary():
+    summary = await build_darkpool_summary("AAPL", provider="demo")
 
     assert summary.symbol == "AAPL"
     assert summary.sections
@@ -21,10 +23,11 @@ def test_command_service_builds_darkpool_summary():
     assert any(section.title == "Top Levels" for section in summary.sections)
 
 
-def test_command_service_builds_specific_feature_summaries():
-    levels = build_levels_summary("NVDA", provider="demo")
-    confluence = build_confluence_summary("NVDA", provider="demo")
-    alerts = build_alerts_summary("NVDA", provider="demo")
+@pytest.mark.asyncio
+async def test_command_service_builds_specific_feature_summaries():
+    levels = await build_levels_summary("NVDA", provider="demo")
+    confluence = await build_confluence_summary("NVDA", provider="demo")
+    alerts = await build_alerts_summary("NVDA", provider="demo")
 
     assert levels.command == "levels"
     assert confluence.command == "confluence"
@@ -32,16 +35,18 @@ def test_command_service_builds_specific_feature_summaries():
     assert alerts.sections[0].items
 
 
-def test_watchlist_summary_aggregates_multiple_symbols():
-    summary = build_watchlist_summary(["AAPL", "NVDA", "MSFT"], provider="demo")
+@pytest.mark.asyncio
+async def test_watchlist_summary_aggregates_multiple_symbols():
+    summary = await build_watchlist_summary(["AAPL", "NVDA", "MSFT"], provider="demo")
 
     assert summary.command == "watchlist"
     assert summary.metrics["symbols"] == "AAPL,NVDA,MSFT"
     assert len(summary.sections[0].items) == 3
 
 
-def test_summary_to_embed_payload_is_discord_ready():
-    summary = build_levels_summary("AAPL", provider="demo")
+@pytest.mark.asyncio
+async def test_summary_to_embed_payload_is_discord_ready():
+    summary = await build_levels_summary("AAPL", provider="demo")
     payload = summary_to_embed(summary)
 
     assert payload["title"].startswith("AAPL")

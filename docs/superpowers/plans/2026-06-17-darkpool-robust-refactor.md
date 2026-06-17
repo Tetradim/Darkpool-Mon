@@ -235,7 +235,7 @@ git commit -m "feat: add provider-backed market context"
 - Test: `tests/test_provider_and_discord.py`
 - Test: `tests/test_discord_features.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_provider_and_discord.py`:
 
@@ -277,7 +277,7 @@ def test_discord_interaction_levels_command_returns_embed():
     assert body["data"]["embeds"][0]["title"].startswith("AAPL")
 ```
 
-- [ ] **Step 2: Run the tests to verify RED**
+- [x] **Step 2: Run the tests to verify RED**
 
 Run:
 
@@ -291,7 +291,7 @@ Expected:
 Failed: DID NOT RAISE <class 'darkpool.providers.ProviderError'>
 ```
 
-- [ ] **Step 3: Refactor command service to async provider-backed builders**
+- [x] **Step 3: Refactor command service to async provider-backed builders**
 
 Replace `_data_context()` and builders with async versions:
 
@@ -333,7 +333,7 @@ async def build_darkpool_summary(...)
 async def build_watchlist_summary(...)
 ```
 
-- [ ] **Step 4: Update route and bot call sites**
+- [x] **Step 4: Update route and bot call sites**
 
 In `server.py`:
 
@@ -351,7 +351,7 @@ await _send_summary(interaction, await build_alerts_summary(symbol, provider=pro
 await _send_summary(interaction, await build_watchlist_summary(parsed, provider=provider))
 ```
 
-- [ ] **Step 5: Run tests to verify GREEN**
+- [x] **Step 5: Run tests to verify GREEN**
 
 Run:
 
@@ -365,7 +365,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add darkpool/command_service.py server.py discord_bot.py tests/test_provider_and_discord.py tests/test_discord_features.py

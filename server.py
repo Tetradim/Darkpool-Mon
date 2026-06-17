@@ -2965,7 +2965,7 @@ async def get_discord_watchlist_summary(
 ):
     """Build the same watchlist summary used by Discord commands."""
     parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
-    summary = build_watchlist_summary(parsed, provider=provider)
+    summary = await build_watchlist_summary(parsed, provider=provider)
     return {
         "summary": {
             "command": summary.command,
@@ -3028,12 +3028,12 @@ async def handle_slash_command(command: SlashCommand):
     }
 
     if cmd_name in builders:
-        summary = builders[cmd_name](symbol, provider=provider)
+        summary = await builders[cmd_name](symbol, provider=provider)
         return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
 
     if cmd_name == "watchlist":
         symbols = options.get("symbols", "AAPL,NVDA,MSFT")
-        summary = build_watchlist_summary([item.strip() for item in symbols.split(",")], provider=provider)
+        summary = await build_watchlist_summary([item.strip() for item in symbols.split(",")], provider=provider)
         return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
 
     if cmd_name == "subscribe":

@@ -24,6 +24,14 @@ async def test_unknown_provider_raises_provider_error():
         await fetch_provider_result("AAPL", provider="missing")
 
 
+@pytest.mark.asyncio
+async def test_command_summary_rejects_unknown_provider_instead_of_labeling_demo_data():
+    from darkpool.command_service import build_levels_summary
+
+    with pytest.raises(ProviderError, match="Unsupported provider"):
+        await build_levels_summary("AAPL", provider="missing-provider")
+
+
 def test_api_compatibility_routes_return_data():
     client = TestClient(server.app)
 
