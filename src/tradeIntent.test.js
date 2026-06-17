@@ -156,11 +156,13 @@ describe('formatRiskPlanSummary', () => {
         stop_price: 181.8,
         target_price: 176.4,
         max_risk_dollars: 500,
+        risk_per_share: 2.4,
+        reward_per_share: 3.0,
         estimated_loss_dollars: 333.6,
         estimated_gain_dollars: 834.0,
       })
     ).toBe(
-      'SELL plan: 278 shares, entry $179.40, stop $181.80, target $176.40, est loss $334, est gain $834, max risk $500.'
+      'SELL plan: 278 shares, entry $179.40, stop $181.80, target $176.40, risk/share $2.40, reward/share $3.00, est loss $334, est gain $834, max risk $500.'
     );
   });
 });

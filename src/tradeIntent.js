@@ -86,6 +86,12 @@ export const formatRiskPlanSummary = (riskPlan) => {
   const actionPrefix = riskPlan.planned_action ? `${riskPlan.planned_action} plan: ` : '';
   const entryPrice = Number(riskPlan.entry_price);
   const entrySummary = Number.isFinite(entryPrice) ? `, entry $${entryPrice.toFixed(2)}` : '';
+  const riskPerShare = Number(riskPlan.risk_per_share);
+  const rewardPerShare = Number(riskPlan.reward_per_share);
+  const perShareSummary =
+    Number.isFinite(riskPerShare) && Number.isFinite(rewardPerShare)
+      ? `, risk/share $${riskPerShare.toFixed(2)}, reward/share $${rewardPerShare.toFixed(2)}`
+      : '';
   const estimatedLoss = Number(riskPlan.estimated_loss_dollars);
   const estimatedGain = Number(riskPlan.estimated_gain_dollars);
   const estimateSummary =
@@ -94,7 +100,7 @@ export const formatRiskPlanSummary = (riskPlan) => {
       : '';
   return `${actionPrefix}${riskPlan.estimated_shares} shares${entrySummary}, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
     riskPlan.target_price
-  ).toFixed(2)}${estimateSummary}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
+  ).toFixed(2)}${perShareSummary}${estimateSummary}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
 };
 
 export const formatConfirmationSummary = (confirmation) => {

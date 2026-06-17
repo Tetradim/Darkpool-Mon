@@ -47,6 +47,8 @@ class RiskPlan(BaseModel):
     estimated_shares: int
     stop_price: float
     target_price: float
+    risk_per_share: float
+    reward_per_share: float
     estimated_loss_dollars: float
     estimated_gain_dollars: float
     notes: list[str]
@@ -187,6 +189,8 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
         estimated_shares=estimated_shares,
         stop_price=round(stop_price, 2),
         target_price=round(target_price, 2),
+        risk_per_share=round(risk_per_share, 2),
+        reward_per_share=round(target_distance, 2),
         estimated_loss_dollars=round(estimated_loss, 2),
         estimated_gain_dollars=round(estimated_gain, 2),
         notes=notes,
