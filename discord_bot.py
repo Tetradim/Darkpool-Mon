@@ -10,10 +10,16 @@ import discord
 from discord import app_commands
 from dotenv import load_dotenv
 
-from darkpool.confluence import score_confluence
-from darkpool.fixtures import get_stock, sample_exposure_nodes, sample_options_flow
-from darkpool.level_engine import cluster_darkpool_levels
-from darkpool.providers import fetch_provider_result
+from darkpool.command_service import (
+    CommandSummary,
+    build_alerts_summary,
+    build_confluence_summary,
+    build_darkpool_summary,
+    build_levels_summary,
+    build_watchlist_summary,
+)
+from darkpool.discord_formatting import summary_to_embed
+from darkpool.subscriptions import SubscriptionStore
 
 load_dotenv()
 
@@ -24,6 +30,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = os.getenv("DISCORD_GUILD_ID", "")
 
 ALERT_THRESHOLDS: dict[str, int] = {}
+SUBSCRIPTIONS = SubscriptionStore()
 
 
 class DarkpoolBot(discord.Client):
@@ -48,61 +55,101 @@ class DarkpoolBot(discord.Client):
 bot = DarkpoolBot()
 
 
+def _discord_embed(summary: CommandSummary) -> discord.Embed:
+    payload = summary_to_embed(summary)
+    embed = discord.Embed(
+        title=payload["title"],
+        description=payload["description"],
+        color=payload["color"],
+        timestamp=datetime.fromisoformat(payload["timestamp"]),
+    )
+    for field in payload["fields"]:
+        embed.add_field(name=field["name"], value=field["value"], inline=field.get("inline", False))
+    embed.set_footer(text=payload["footer"]["text"])
+    return embed
+
+
+async def _send_summary(interaction: discord.Interaction, summary: CommandSummary):
+    await interaction.response.defer()
+    await interaction.followup.send(embed=_discord_embed(summary))
+
+
 @bot.tree.command()
 async def darkpool(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
-    """Get dark pool levels and confluence context for a symbol."""
-    await interaction.response.defer()
+    """Get a combined dark pool, confluence, and alert summary."""
+    await _send_summary(interaction, build_darkpool_summary(symbol, provider=provider))
 
-    try:
-        sym = symbol.upper()
-        provider_result = await fetch_provider_result(sym, provider=provider, limit=300)
-        stock = get_stock(sym)
-        spot = float(stock.get("basePrice", 100.0))
-        levels = cluster_darkpool_levels(provider_result.prints)[:3]
-        scores = score_confluence(
-            sym,
-            spot,
-            levels,
-            sample_exposure_nodes(sym, spot),
-            sample_options_flow(sym),
-        )[:3]
 
-        embed = discord.Embed(
-            title=f"Darkpool: {sym}",
-            description="Context levels only. Require price confirmation before acting.",
-            color=discord.Color.blue(),
-            timestamp=datetime.utcnow(),
-        )
-        embed.add_field(name="Provider", value=provider_result.provider, inline=True)
-        embed.add_field(name="Prints", value=f"{len(provider_result.prints):,}", inline=True)
-        embed.add_field(name="Spot", value=f"${spot:.2f}", inline=True)
+@bot.tree.command()
+async def levels(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
+    """Show clustered dark pool levels for a ticker."""
+    await _send_summary(interaction, build_levels_summary(symbol, provider=provider))
 
-        if provider_result.degraded and provider_result.message:
-            embed.add_field(name="Mode", value=provider_result.message[:1024], inline=False)
 
-        if levels:
-            embed.add_field(
-                name="Top Levels",
-                value="\n".join(
-                    f"${level.price:.2f} | score {level.strength_score:.1f} | {level.total_size:,} sh"
-                    for level in levels
-                ),
-                inline=False,
-            )
-        if scores:
-            embed.add_field(
-                name="Confluence",
-                value="\n".join(
-                    f"${score.level_price:.2f} | {score.direction} | {score.score:.1f}"
-                    for score in scores
-                ),
-                inline=False,
-            )
+@bot.tree.command()
+async def confluence(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
+    """Show dark pool, exposure-node, and options-flow confluence."""
+    await _send_summary(interaction, build_confluence_summary(symbol, provider=provider))
 
-        await interaction.followup.send(embed=embed)
-    except Exception as exc:
-        logger.exception("Discord /darkpool failed")
-        await interaction.followup.send(f"Error: {exc}")
+
+@bot.tree.command()
+async def alerts(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
+    """Show explainable alert candidates for a ticker."""
+    await _send_summary(interaction, build_alerts_summary(symbol, provider=provider))
+
+
+@bot.tree.command()
+async def watchlist(interaction: discord.Interaction, symbols: str = "AAPL,NVDA,MSFT", provider: str = "demo"):
+    """Show top dark pool candidates for a comma-separated ticker list."""
+    parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
+    await _send_summary(interaction, build_watchlist_summary(parsed, provider=provider))
+
+
+@bot.tree.command()
+async def subscribe(
+    interaction: discord.Interaction,
+    topic: str = "alerts",
+    symbols: str = "AAPL,NVDA,MSFT",
+    min_score: float = 70.0,
+    provider: str = "demo",
+):
+    """Subscribe the current channel to an autopost topic."""
+    parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
+    subscription = SUBSCRIPTIONS.create(
+        channel_id=str(interaction.channel_id),
+        topic=topic,
+        symbols=parsed,
+        min_score=min_score,
+        provider=provider,
+    )
+    await interaction.response.send_message(
+        f"Subscribed this channel to {subscription.topic} for {', '.join(subscription.symbols)} "
+        f"at score >= {subscription.min_score:.0f}. ID: {subscription.id}"
+    )
+
+
+@bot.tree.command()
+async def subscriptions(interaction: discord.Interaction):
+    """List autopost subscriptions for the current channel."""
+    rows = SUBSCRIPTIONS.list(channel_id=str(interaction.channel_id))
+    if not rows:
+        await interaction.response.send_message("No subscriptions configured for this channel.")
+        return
+    lines = [
+        f"{row.id}: {row.topic} | {', '.join(row.symbols)} | score >= {row.min_score:.0f} | {row.provider}"
+        for row in rows
+    ]
+    await interaction.response.send_message("\n".join(lines))
+
+
+@bot.tree.command()
+async def unsubscribe(interaction: discord.Interaction, subscription_id: str):
+    """Remove an autopost subscription from the current channel."""
+    deleted = SUBSCRIPTIONS.delete(subscription_id, channel_id=str(interaction.channel_id))
+    if deleted:
+        await interaction.response.send_message(f"Removed subscription {subscription_id}.")
+    else:
+        await interaction.response.send_message(f"No subscription found for {subscription_id} in this channel.")
 
 
 @bot.tree.command()

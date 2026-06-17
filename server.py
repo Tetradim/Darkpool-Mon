@@ -15,10 +15,19 @@ from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
 from darkpool.alerting import build_alert_candidates
+from darkpool.command_service import (
+    build_alerts_summary,
+    build_confluence_summary,
+    build_darkpool_summary,
+    build_levels_summary,
+    build_watchlist_summary,
+)
+from darkpool.discord_formatting import summary_to_embed
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
 from darkpool.providers import ProviderError, fetch_provider_result
+from darkpool.subscriptions import SubscriptionStore
 
 load_dotenv()
 
@@ -30,6 +39,8 @@ app = FastAPI(
     description="Backend for real-time darkpool monitoring with FINRA OTC data",
     version="2.0.0",
 )
+
+subscription_store = SubscriptionStore()
 
 # ============================================================================
 # Authentication & Security
@@ -2814,11 +2825,121 @@ class SlashCommand(BaseModel):
     channel_id: str | None = None
 
 
+@app.get("/discord/watchlist-summary")
+async def get_discord_watchlist_summary(
+    symbols: str = Query(..., description="Comma-separated tickers"),
+    provider: str = Query("demo"),
+):
+    """Build the same watchlist summary used by Discord commands."""
+    parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
+    summary = build_watchlist_summary(parsed, provider=provider)
+    return {
+        "summary": {
+            "command": summary.command,
+            "symbol": summary.symbol,
+            "title": summary.title,
+            "description": summary.description,
+            "metrics": summary.metrics,
+            "sections": [
+                {"title": section.title, "items": section.items}
+                for section in summary.sections
+            ],
+        }
+    }
+
+
+@app.post("/discord/subscriptions")
+async def create_discord_subscription(
+    channel_id: str = Query(...),
+    topic: str = Query(..., pattern="^(alerts|levels|confluence|watchlist)$"),
+    symbols: str = Query(..., description="Comma-separated tickers"),
+    min_score: float = Query(70, ge=0, le=100),
+    provider: str = Query("demo"),
+):
+    """Subscribe a Discord channel to an autopost topic."""
+    subscription = subscription_store.create(
+        channel_id=channel_id,
+        topic=topic,
+        symbols=[symbol.strip() for symbol in symbols.split(",")],
+        min_score=min_score,
+        provider=provider,
+    )
+    return {"subscription": subscription.to_dict()}
+
+
+@app.get("/discord/subscriptions")
+async def list_discord_subscriptions(channel_id: str | None = Query(None)):
+    """List Discord autopost subscriptions."""
+    return {"subscriptions": [subscription.to_dict() for subscription in subscription_store.list(channel_id=channel_id)]}
+
+
+@app.delete("/discord/subscriptions/{subscription_id}")
+async def delete_discord_subscription(subscription_id: str, channel_id: str | None = Query(None)):
+    """Delete a Discord autopost subscription."""
+    return {"deleted": subscription_store.delete(subscription_id, channel_id=channel_id)}
+
+
 @app.post("/discord/commands")
 async def handle_slash_command(command: SlashCommand):
     """Handle Discord slash commands."""
     cmd_name = command.data.get("name", "")
     options = {opt["name"]: opt.get("value") for opt in command.data.get("options", [])}
+    symbol = options.get("symbol", "AAPL")
+    provider = options.get("provider", "demo")
+
+    builders = {
+        "darkpool": build_darkpool_summary,
+        "levels": build_levels_summary,
+        "confluence": build_confluence_summary,
+        "alerts": build_alerts_summary,
+    }
+
+    if cmd_name in builders:
+        summary = builders[cmd_name](symbol, provider=provider)
+        return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
+
+    if cmd_name == "watchlist":
+        symbols = options.get("symbols", "AAPL,NVDA,MSFT")
+        summary = build_watchlist_summary([item.strip() for item in symbols.split(",")], provider=provider)
+        return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
+
+    if cmd_name == "subscribe":
+        channel_id = command.channel_id or "unknown"
+        topic = options.get("topic", "alerts")
+        symbols = options.get("symbols", "AAPL,NVDA,MSFT")
+        min_score = float(options.get("min_score", 70))
+        subscription = subscription_store.create(
+            channel_id=channel_id,
+            topic=topic,
+            symbols=[item.strip() for item in symbols.split(",")],
+            min_score=min_score,
+            provider=provider,
+        )
+        return {
+            "type": 4,
+            "data": {
+                "content": (
+                    f"Subscribed channel {channel_id} to {subscription.topic} for "
+                    f"{', '.join(subscription.symbols)} at score >= {subscription.min_score:.0f}. "
+                    f"ID: {subscription.id}"
+                )
+            },
+        }
+
+    if cmd_name == "subscriptions":
+        channel_id = command.channel_id or "unknown"
+        rows = subscription_store.list(channel_id=channel_id)
+        if not rows:
+            return {"type": 4, "data": {"content": "No subscriptions configured for this channel."}}
+        return {
+            "type": 4,
+            "data": {
+                "content": "\n".join(
+                    f"{row.id}: {row.topic} | {', '.join(row.symbols)} | score >= {row.min_score:.0f}"
+                    for row in rows
+                )
+            },
+        }
 
     if cmd_name == "darkpool":
         symbol = options.get("symbol")

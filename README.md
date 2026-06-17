@@ -130,9 +130,24 @@ Alerts and watchlists:
 - `GET /watchlists`
 - `POST /watchlists`
 
+Discord integration:
+
+- `GET /discord/watchlist-summary?symbols=AAPL,NVDA,MSFT`
+- `POST /discord/subscriptions?channel_id=...&topic=alerts&symbols=AAPL,NVDA&min_score=70`
+- `GET /discord/subscriptions?channel_id=...`
+- `DELETE /discord/subscriptions/{subscription_id}?channel_id=...`
+- `POST /discord/commands`
+
 ## Discord Commands
 
-- `/darkpool symbol:AAPL provider:demo`: show top clustered levels and confluence scores.
+- `/darkpool symbol:AAPL provider:demo`: show a combined dark pool, confluence, and alert summary.
+- `/levels symbol:AAPL provider:demo`: show clustered dark pool context levels.
+- `/confluence symbol:AAPL provider:demo`: show dark pool, exposure-node, and options-flow confluence.
+- `/alerts symbol:AAPL provider:demo`: show explainable alert candidates.
+- `/watchlist symbols:AAPL,NVDA,MSFT provider:demo`: summarize the highest-ranked candidate per ticker.
+- `/subscribe topic:alerts symbols:AAPL,NVDA min_score:70 provider:demo`: subscribe the current channel to an autopost topic.
+- `/subscriptions`: list autopost subscriptions for the current channel.
+- `/unsubscribe subscription_id:<id>`: remove an autopost subscription from the current channel.
 - `/setalert symbol:AAPL threshold:100000`: set a whale threshold in shares.
 - `/alertstatus`: list configured alert thresholds.
 - `/removealert symbol:AAPL`: remove a threshold.
@@ -182,10 +197,13 @@ Feature direction was informed by public documentation and product behavior from
 - Skylit Heatseeker docs: https://docs.skylit.ai/
 - Skylit Heatseeker node workflow: https://www.skylit.ai/learn/reading-heatseeker
 - Unusual Whales API docs: https://api.unusualwhales.com/docs
+- Unusual Whales Discord bot: https://unusualwhales.com/discord-bot
 - FINRA Weekly Summary API: https://developer.finra.org/docs/api-explorer/query_api-equity-weekly_summary
 - SEC Form ATS-N information: https://www.sec.gov/about/divisions-offices/division-trading-markets/alternative-trading-systems/form-ats-n-filings-information
 - FlowAlgo: https://flowalgo.com/
 - Cheddar Flow Discord bot: https://www.cheddarflow.com/cheddar-flow-discord-bot/
+- Tradytics Discord bots: https://tradytics.com/discord
+- InsiderFinance Discord bot docs: https://www.insiderfinance.io/docs/discord-bot
 - BlackBoxStocks features: https://blackboxstocks.com/features/
 
 ## Next Production Steps

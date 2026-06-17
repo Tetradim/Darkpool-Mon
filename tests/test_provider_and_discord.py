@@ -51,6 +51,57 @@ def test_discord_unknown_command_payload_is_handled():
     assert response.json()["data"]["content"] == "Unknown command"
 
 
+def test_discord_interaction_levels_command_returns_embed():
+    client = TestClient(server.app)
+    response = client.post(
+        "/discord/commands",
+        json={
+            "id": "2",
+            "type": 2,
+            "data": {
+                "name": "levels",
+                "options": [
+                    {"name": "symbol", "value": "AAPL"},
+                    {"name": "provider", "value": "demo"},
+                ],
+            },
+            "member": None,
+            "guild_id": "guild-1",
+            "channel_id": "channel-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == 4
+    assert body["data"]["embeds"][0]["title"].startswith("AAPL")
+
+
+def test_discord_interaction_subscribe_command_creates_subscription():
+    client = TestClient(server.app)
+    response = client.post(
+        "/discord/commands",
+        json={
+            "id": "3",
+            "type": 2,
+            "data": {
+                "name": "subscribe",
+                "options": [
+                    {"name": "topic", "value": "alerts"},
+                    {"name": "symbols", "value": "AAPL,NVDA"},
+                    {"name": "min_score", "value": 75},
+                ],
+            },
+            "member": None,
+            "guild_id": "guild-1",
+            "channel_id": "channel-slash",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Subscribed channel" in response.json()["data"]["content"]
+
+
 def test_discord_bot_no_token_exits_cleanly():
     env = os.environ.copy()
     env["PYTHON_DOTENV_DISABLED"] = "1"
@@ -69,4 +120,3 @@ def test_discord_bot_no_token_exits_cleanly():
 
     assert result.returncode == 0
     assert "DISCORD_BOT_TOKEN not set" in result.stdout
-
