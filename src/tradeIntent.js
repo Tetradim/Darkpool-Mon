@@ -11,6 +11,7 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   maxPositionNotional: 50000,
   maxQualityCautionFlags: 99,
   minQualitySupportFlags: 0,
+  minSourceConfirmationWeight: 0,
   priceConfirmed: false,
   liquidityConfirmed: false,
   newsChecked: false,
@@ -58,6 +59,10 @@ export const buildTradeIntentUrl = (settings = {}) => {
   params.set(
     'min_quality_support_flags',
     String(asNumber(merged.minQualitySupportFlags, DEFAULT_TRADE_INTENT_SETTINGS.minQualitySupportFlags))
+  );
+  params.set(
+    'min_source_confirmation_weight',
+    String(asNumber(merged.minSourceConfirmationWeight, DEFAULT_TRADE_INTENT_SETTINGS.minSourceConfirmationWeight))
   );
   params.set('price_confirmed', String(Boolean(merged.priceConfirmed)));
   params.set('liquidity_confirmed', String(Boolean(merged.liquidityConfirmed)));

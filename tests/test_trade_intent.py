@@ -201,6 +201,23 @@ def test_trade_intent_blocks_when_quality_support_requirement_is_not_met():
     assert any("quality support flags" in blocker and "below user minimum 2" in blocker for blocker in intent.blockers)
 
 
+def test_trade_intent_blocks_when_source_confirmation_weight_is_below_user_minimum():
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        min_source_confirmation_weight=0.35,
+    )
+
+    intent = build_trade_intent(_score(score=82.0), preferences, source_confirmation_weight=0.0)
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert any(
+        "source confirmation weight 0.00 is below user minimum 0.35" in blocker for blocker in intent.blockers
+    )
+
+
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
     preferences = TradingPreferences(
         min_score=80,
@@ -341,6 +358,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["preferences"]["min_score"] == 60.0
     assert body["preferences"]["max_quality_caution_flags"] == 99
     assert body["preferences"]["min_quality_support_flags"] == 0
+    assert body["preferences"]["min_source_confirmation_weight"] == 0.0
     assert body["intent"]["status"] in {"ready_for_sentinel", "blocked"}
     assert "readable_summary" in body["intent"]
     assert body["intent"]["confidence_breakdown"]
@@ -396,3 +414,23 @@ def test_trade_intent_endpoint_exposes_quality_gate_customization():
     assert body["sentinel"]["status"] == "rejected"
     assert body["pulse_packet"] is None
     assert any("quality support flags" in blocker for blocker in body["intent"]["blockers"])
+
+
+def test_trade_intent_endpoint_blocks_when_source_confirmation_requirement_is_not_met():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true"
+        "&min_source_confirmation_weight=0.35"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["preferences"]["min_source_confirmation_weight"] == 0.35
+    assert body["confirmation_sources"]["available_confirmation_weight"] == 0.0
+    assert body["intent"]["status"] == "blocked"
+    assert body["sentinel"]["status"] == "rejected"
+    assert body["pulse_packet"] is None
+    assert any("source confirmation weight" in blocker for blocker in body["intent"]["blockers"])

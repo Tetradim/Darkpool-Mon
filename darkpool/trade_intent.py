@@ -30,6 +30,7 @@ class TradingPreferences(BaseModel):
     max_position_notional: float = Field(default=50_000.0, ge=0)
     max_quality_caution_flags: int = Field(default=99, ge=0)
     min_quality_support_flags: int = Field(default=0, ge=0)
+    min_source_confirmation_weight: float = Field(default=0.0, ge=0)
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])
 
@@ -344,7 +345,23 @@ def _apply_quality_gates(quality_flags: list[QualityFlag], preferences: TradingP
         )
 
 
-def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences | None = None) -> TradeIntent:
+def _apply_source_confirmation_gate(
+    source_confirmation_weight: float,
+    preferences: TradingPreferences,
+    blockers: list[str],
+) -> None:
+    if source_confirmation_weight < preferences.min_source_confirmation_weight:
+        blockers.append(
+            f"source confirmation weight {source_confirmation_weight:.2f} is below user minimum "
+            f"{preferences.min_source_confirmation_weight:.2f}"
+        )
+
+
+def build_trade_intent(
+    score: ConfluenceScore,
+    preferences: TradingPreferences | None = None,
+    source_confirmation_weight: float = 0.0,
+) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
     blockers: list[str] = []
@@ -370,6 +387,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
 
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
+    _apply_source_confirmation_gate(source_confirmation_weight, preferences, blockers)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"

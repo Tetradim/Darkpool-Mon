@@ -21,6 +21,7 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Signal Quality Flags" in production_views
     assert "Max Caution Flags" in production_views
     assert "Min Support Flags" in production_views
+    assert "Min Source Weight" in production_views
     assert "formatSentinelChecks" in production_views
     assert "Sentinel Checklist" in production_views
     assert "formatSourceConfirmationPlan" in production_views

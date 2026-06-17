@@ -706,6 +706,7 @@ async def get_darkpool_trade_intent(
     max_position_notional: float = Query(50_000.0, ge=0),
     max_quality_caution_flags: int = Query(99, ge=0),
     min_quality_support_flags: int = Query(0, ge=0),
+    min_source_confirmation_weight: float = Query(0.0, ge=0),
     price_confirmed: bool = Query(False),
     liquidity_confirmed: bool = Query(False),
     news_checked: bool = Query(False),
@@ -736,6 +737,7 @@ async def get_darkpool_trade_intent(
         max_position_notional=max_position_notional,
         max_quality_caution_flags=max_quality_caution_flags,
         min_quality_support_flags=min_quality_support_flags,
+        min_source_confirmation_weight=min_source_confirmation_weight,
         allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
     )
     confirmation = SentinelConfirmation(
@@ -769,7 +771,11 @@ async def get_darkpool_trade_intent(
             "fetched_at": datetime.utcnow().isoformat(),
         }
 
-    intent = build_trade_intent(scores[0], preferences)
+    intent = build_trade_intent(
+        scores[0],
+        preferences,
+        source_confirmation_weight=confirmation_sources.available_confirmation_weight,
+    )
     sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None
     if include_pulse_packet and sentinel.status == "approved":

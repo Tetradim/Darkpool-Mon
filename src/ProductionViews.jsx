@@ -505,6 +505,18 @@ const TradeIntentView = () => {
                 className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
               />
             </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-gray-400">Min Source Weight</span>
+              <input
+                type="number"
+                min="0"
+                step="0.05"
+                value={controls.minSourceConfirmationWeight}
+                onChange={(event) => updateControl('minSourceConfirmationWeight', Number(event.target.value))}
+                className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
+              />
+            </label>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
