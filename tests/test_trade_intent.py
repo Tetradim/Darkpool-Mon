@@ -347,6 +347,9 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["intent"]["confidence_breakdown"][0]["name"] == "Dark pool level"
     assert body["intent"]["quality_flags"]
     assert body["sentinel"]["checks"]
+    assert body["confirmation_sources"]["sources"]
+    assert any(source["id"] == "finra_otc_transparency" for source in body["confirmation_sources"]["sources"])
+    assert "real-time price/NBBO" in body["confirmation_sources"]["recommended_next_sources"][0]
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"
         assert body["pulse_packet"]["requires_manual_execution"] is True

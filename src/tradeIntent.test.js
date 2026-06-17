@@ -7,6 +7,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatSourceConfirmationPlan,
   formatIntentMoney,
   getIntentTone,
   summarizePulsePacket,
@@ -162,6 +163,27 @@ describe('formatSentinelChecks', () => {
         },
       ])
     ).toEqual(['FAILED price_confirmation - price confirmation required before Pulse']);
+  });
+});
+
+describe('formatSourceConfirmationPlan', () => {
+  it('summarizes missing source plans as unavailable', () => {
+    expect(formatSourceConfirmationPlan(null)).toEqual(['Source confirmation plan unavailable.']);
+  });
+
+  it('formats source status, priority, and confirmation role for operator scanning', () => {
+    expect(
+      formatSourceConfirmationPlan({
+        sources: [
+          {
+            name: 'SIP/NBBO feed',
+            status: 'missing',
+            priority: 'required',
+            role: 'price_confirmation',
+          },
+        ],
+      })
+    ).toEqual(['MISSING REQUIRED SIP/NBBO feed - price_confirmation']);
   });
 });
 

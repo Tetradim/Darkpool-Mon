@@ -175,6 +175,17 @@ export const formatSentinelChecks = (checks) => {
   });
 };
 
+export const formatSourceConfirmationPlan = (plan) => {
+  if (!plan || !Array.isArray(plan.sources) || plan.sources.length === 0) {
+    return ['Source confirmation plan unavailable.'];
+  }
+  return plan.sources.map((source) => {
+    const status = String(source.status || 'missing').toUpperCase();
+    const priority = String(source.priority || 'context').toUpperCase();
+    return `${status} ${priority} ${source.name} - ${source.role}`;
+  });
+};
+
 export const formatIntentMoney = (value) => {
   const amount = Number(value || 0);
   if (Math.abs(amount) >= 1_000_000_000) {

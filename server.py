@@ -27,6 +27,7 @@ from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
 from darkpool.providers import ProviderError, fetch_provider_result
+from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.subscriptions import SubscriptionStore
 from darkpool.trade_intent import (
     LocalSentinelEdgeAdapter,
@@ -672,6 +673,24 @@ async def get_darkpool_alert_candidates(
     }
 
 
+@app.get("/darkpool/information-sources")
+async def get_darkpool_information_sources(
+    active_provider: str = Query("demo", description="Active source provider for current workflow"),
+):
+    """Return market information sources and their confirmation roles."""
+    configured_providers = [
+        name
+        for name, provider_obj in PROVIDERS.items()
+        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
+    ]
+    plan = build_trade_confirmation_plan(active_provider=active_provider, configured_providers=configured_providers)
+    return {
+        "active_provider": active_provider,
+        "catalog": [source.model_dump(mode="json") for source in list_market_information_sources()],
+        "confirmation_plan": plan.model_dump(mode="json"),
+    }
+
+
 @app.get("/darkpool/trade-intent")
 async def get_darkpool_trade_intent(
     symbol: str = Query("AAPL", description="Stock symbol"),
@@ -726,6 +745,15 @@ async def get_darkpool_trade_intent(
         observed_spread_bps=observed_spread_bps,
         max_spread_bps=max_spread_bps,
     )
+    configured_providers = [
+        name
+        for name, provider_obj in PROVIDERS.items()
+        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
+    ]
+    confirmation_sources = build_trade_confirmation_plan(
+        active_provider=provider_result.provider,
+        configured_providers=configured_providers,
+    )
 
     if not scores:
         return {
@@ -734,6 +762,7 @@ async def get_darkpool_trade_intent(
             "degraded": provider_result.degraded,
             "message": provider_result.message,
             "preferences": preferences.model_dump(mode="json"),
+            "confirmation_sources": confirmation_sources.model_dump(mode="json"),
             "intent": None,
             "sentinel": None,
             "pulse_packet": None,
@@ -752,6 +781,7 @@ async def get_darkpool_trade_intent(
         "degraded": provider_result.degraded,
         "message": provider_result.message,
         "preferences": preferences.model_dump(mode="json"),
+        "confirmation_sources": confirmation_sources.model_dump(mode="json"),
         "intent": intent.model_dump(mode="json"),
         "sentinel": sentinel.model_dump(mode="json"),
         "pulse_packet": pulse_packet,

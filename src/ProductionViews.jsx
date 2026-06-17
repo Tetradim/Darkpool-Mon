@@ -9,6 +9,7 @@ import {
   formatQualityFlags,
   formatRiskPlanSummary,
   formatSentinelChecks,
+  formatSourceConfirmationPlan,
   getIntentTone,
   summarizePulsePacket,
 } from './tradeIntent';
@@ -346,6 +347,7 @@ const TradeIntentView = () => {
   const intent = result?.intent;
   const sentinel = result?.sentinel;
   const pulsePacket = result?.pulse_packet;
+  const confirmationSources = result?.confirmation_sources;
   const tone = getIntentTone(intent);
 
   return (
@@ -655,6 +657,23 @@ const TradeIntentView = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="bg-dark-700 rounded-lg p-4">
+                <div className="text-xs text-gray-500 mb-2">Source Confirmation Plan</div>
+                {confirmationSources?.summary && (
+                  <p className="text-sm text-gray-200 mb-3">{confirmationSources.summary}</p>
+                )}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {formatSourceConfirmationPlan(confirmationSources).map((line) => (
+                    <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
+                      {line}
+                    </div>
+                  ))}
+                </div>
+                {confirmationSources?.recommended_next_sources?.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-3">{confirmationSources.recommended_next_sources.join(' ')}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
