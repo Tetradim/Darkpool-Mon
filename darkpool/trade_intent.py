@@ -16,6 +16,7 @@ TradeAction = Literal["BUY", "SELL", "HOLD"]
 IntentStatus = Literal["blocked", "ready_for_sentinel"]
 DecisionStatus = Literal["approved", "rejected"]
 QualitySeverity = Literal["support", "caution", "missing"]
+CheckStatus = Literal["passed", "failed"]
 
 
 class TradingPreferences(BaseModel):
@@ -68,6 +69,12 @@ class SentinelConfirmation(BaseModel):
     max_spread_bps: float = Field(default=25.0, ge=0)
 
 
+class SentinelCheck(BaseModel):
+    name: str
+    status: CheckStatus
+    message: str
+
+
 class TradeIntent(BaseModel):
     id: str
     symbol: str
@@ -94,6 +101,7 @@ class SentinelDecision(BaseModel):
     reviewed_at: datetime
     reasons: list[str]
     confirmation: SentinelConfirmation | None = None
+    checks: list[SentinelCheck]
 
 
 class SentinelEdgeAdapter(Protocol):
@@ -404,25 +412,100 @@ class LocalSentinelEdgeAdapter:
     def review(self, intent: TradeIntent, confirmation: SentinelConfirmation | None = None) -> SentinelDecision:
         confirmation = confirmation or SentinelConfirmation()
         if intent.status != "ready_for_sentinel":
+            message = "; ".join(intent.blockers) if intent.blockers else "intent is not ready for Sentinel Edge approval"
             return SentinelDecision(
                 decision_id=f"sentinel:{intent.id}:{_stable_id(intent.id, 'rejected')}",
                 status="rejected",
                 reviewed_at=datetime.now(timezone.utc),
-                reasons=intent.blockers or ["intent is not ready for Sentinel Edge approval"],
+                reasons=intent.blockers or [message],
                 confirmation=confirmation,
+                checks=[
+                    SentinelCheck(
+                        name="intent_ready",
+                        status="failed",
+                        message=message,
+                    )
+                ],
             )
 
-        rejection_reasons: list[str] = []
-        if not confirmation.price_confirmed:
-            rejection_reasons.append("price confirmation required before Pulse")
-        if not confirmation.liquidity_confirmed:
-            rejection_reasons.append("liquidity confirmation required before Pulse")
-        if not confirmation.news_checked:
-            rejection_reasons.append("news check required before Pulse")
-        if confirmation.observed_spread_bps > confirmation.max_spread_bps:
-            rejection_reasons.append(
-                f"spread {confirmation.observed_spread_bps:.1f} bps exceeds max {confirmation.max_spread_bps:.1f} bps"
+        checks = [
+            SentinelCheck(
+                name="intent_ready",
+                status="passed",
+                message="intent passed user thresholds, risk controls, and quality gates",
             )
+        ]
+        if not confirmation.price_confirmed:
+            checks.append(
+                SentinelCheck(
+                    name="price_confirmation",
+                    status="failed",
+                    message="price confirmation required before Pulse",
+                )
+            )
+        else:
+            checks.append(
+                SentinelCheck(
+                    name="price_confirmation",
+                    status="passed",
+                    message="price confirmation complete",
+                )
+            )
+        if not confirmation.liquidity_confirmed:
+            checks.append(
+                SentinelCheck(
+                    name="liquidity_confirmation",
+                    status="failed",
+                    message="liquidity confirmation required before Pulse",
+                )
+            )
+        else:
+            checks.append(
+                SentinelCheck(
+                    name="liquidity_confirmation",
+                    status="passed",
+                    message="liquidity confirmation complete",
+                )
+            )
+        if not confirmation.news_checked:
+            checks.append(
+                SentinelCheck(
+                    name="news_check",
+                    status="failed",
+                    message="news check required before Pulse",
+                )
+            )
+        else:
+            checks.append(
+                SentinelCheck(
+                    name="news_check",
+                    status="passed",
+                    message="news check complete",
+                )
+            )
+        if confirmation.observed_spread_bps > confirmation.max_spread_bps:
+            checks.append(
+                SentinelCheck(
+                    name="spread_guard",
+                    status="failed",
+                    message=(
+                        f"spread {confirmation.observed_spread_bps:.1f} bps exceeds max "
+                        f"{confirmation.max_spread_bps:.1f} bps"
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                SentinelCheck(
+                    name="spread_guard",
+                    status="passed",
+                    message=(
+                        f"spread {confirmation.observed_spread_bps:.1f} bps is within "
+                        f"{confirmation.max_spread_bps:.1f} bps max"
+                    ),
+                )
+            )
+        rejection_reasons = [check.message for check in checks if check.status == "failed"]
         if rejection_reasons:
             return SentinelDecision(
                 decision_id=f"sentinel:{intent.id}:{_stable_id(intent.id, 'confirmation-rejected')}",
@@ -430,6 +513,7 @@ class LocalSentinelEdgeAdapter:
                 reviewed_at=datetime.now(timezone.utc),
                 reasons=rejection_reasons,
                 confirmation=confirmation,
+                checks=checks,
             )
 
         return SentinelDecision(
@@ -443,6 +527,7 @@ class LocalSentinelEdgeAdapter:
                 "Pulse packet may be prepared for manual execution review",
             ],
             confirmation=confirmation,
+            checks=checks,
         )
 
 
@@ -468,6 +553,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
         "confidence_breakdown": [component.model_dump(mode="json") for component in intent.confidence_breakdown],
         "quality_flags": [flag.model_dump(mode="json") for flag in intent.quality_flags],
+        "sentinel_checks": [check.model_dump(mode="json") for check in sentinel_decision.checks],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "reasons": intent.reasons,
     }

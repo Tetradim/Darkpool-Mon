@@ -164,6 +164,17 @@ export const formatQualityFlags = (flags) => {
   });
 };
 
+export const formatSentinelChecks = (checks) => {
+  if (!Array.isArray(checks) || checks.length === 0) {
+    return ['Sentinel checklist unavailable.'];
+  }
+  return checks.map((check) => {
+    const status = String(check.status || 'unknown').toUpperCase();
+    const name = check.name || 'check';
+    return `${status} ${name} - ${check.message}`;
+  });
+};
+
 export const formatIntentMoney = (value) => {
   const amount = Number(value || 0);
   if (Math.abs(amount) >= 1_000_000_000) {

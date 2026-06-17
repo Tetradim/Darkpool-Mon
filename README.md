@@ -162,7 +162,7 @@ Discord integration:
 
 `GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, max position notional, max quality caution flags, and minimum quality support flags.
 
-The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, signal-quality gates, allowed buy/sell sides, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion.
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, signal-quality gates, allowed buy/sell sides, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion. The view also shows the Sentinel checklist used to approve or reject Pulse preparation.
 
 The endpoint returns:
 
@@ -171,7 +171,8 @@ The endpoint returns:
 - `intent.quality_flags`: support, caution, and missing-data flags for dark pool side bias, options flow, and exposure evidence. `max_quality_caution_flags` and `min_quality_support_flags` can block an intent before Sentinel approval.
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
-- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, confidence breakdown, and quality flags for manual execution review.
+- `sentinel.checks`: named pass/fail checklist entries for intent readiness, price confirmation, liquidity confirmation, news check, and spread guard.
+- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, confidence breakdown, quality flags, and Sentinel checklist for manual execution review.
 
 Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld.
 

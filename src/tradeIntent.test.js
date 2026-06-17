@@ -6,6 +6,7 @@ import {
   formatConfidenceBreakdown,
   formatQualityFlags,
   formatRiskPlanSummary,
+  formatSentinelChecks,
   formatIntentMoney,
   getIntentTone,
   summarizePulsePacket,
@@ -143,6 +144,24 @@ describe('formatQualityFlags', () => {
         },
       ])
     ).toEqual(['CAUTION options_flow - 1 options flow item(s) conflict with BUY']);
+  });
+});
+
+describe('formatSentinelChecks', () => {
+  it('summarizes missing checklist state as unavailable', () => {
+    expect(formatSentinelChecks(null)).toEqual(['Sentinel checklist unavailable.']);
+  });
+
+  it('formats check status and message for operator scanning', () => {
+    expect(
+      formatSentinelChecks([
+        {
+          name: 'price_confirmation',
+          status: 'failed',
+          message: 'price confirmation required before Pulse',
+        },
+      ])
+    ).toEqual(['FAILED price_confirmation - price confirmation required before Pulse']);
   });
 });
 

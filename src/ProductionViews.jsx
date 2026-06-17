@@ -8,6 +8,7 @@ import {
   formatIntentMoney,
   formatQualityFlags,
   formatRiskPlanSummary,
+  formatSentinelChecks,
   getIntentTone,
   summarizePulsePacket,
 } from './tradeIntent';
@@ -699,6 +700,17 @@ const TradeIntentView = () => {
                   <div className="text-xs text-gray-500 mb-2">Sentinel Edge</div>
                   <p className="text-sm text-gray-200 mb-2">{formatConfirmationSummary(sentinel?.confirmation)}</p>
                   <p className="text-sm text-gray-200">{sentinel?.reasons?.join(' ') || 'No Sentinel decision.'}</p>
+                </div>
+              </div>
+
+              <div className="bg-dark-700 rounded-lg p-4">
+                <div className="text-xs text-gray-500 mb-3">Sentinel Checklist</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {formatSentinelChecks(sentinel?.checks).map((line) => (
+                    <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
+                      {line}
+                    </div>
+                  ))}
                 </div>
               </div>
 

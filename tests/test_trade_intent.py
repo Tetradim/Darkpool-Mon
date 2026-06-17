@@ -228,6 +228,14 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert intent.risk_plan.target_price == 183.6
     assert intent.risk_plan.position_notional <= 100_000
     assert sentinel.status == "approved"
+    assert [check.name for check in sentinel.checks] == [
+        "intent_ready",
+        "price_confirmation",
+        "liquidity_confirmation",
+        "news_check",
+        "spread_guard",
+    ]
+    assert all(check.status == "passed" for check in sentinel.checks)
     packet = prepare_pulse_packet(intent, sentinel)
     assert packet["destination"] == "pulse"
     assert packet["action"] == "BUY"
@@ -237,6 +245,7 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
     assert packet["sentinel_confirmation"]["price_confirmed"] is True
     assert packet["quality_flags"] == [flag.model_dump(mode="json") for flag in intent.quality_flags]
+    assert packet["sentinel_checks"] == [check.model_dump(mode="json") for check in sentinel.checks]
 
 
 def test_sentinel_rejects_ready_intent_without_required_confirmations():
@@ -255,6 +264,11 @@ def test_sentinel_rejects_ready_intent_without_required_confirmations():
     assert intent.status == "ready_for_sentinel"
     assert sentinel.status == "rejected"
     assert any("price confirmation" in reason for reason in sentinel.reasons)
+    assert any(
+        check.name == "price_confirmation" and check.status == "failed" and "required before Pulse" in check.message
+        for check in sentinel.checks
+    )
+    assert any(check.name == "liquidity_confirmation" and check.status == "passed" for check in sentinel.checks)
     with pytest.raises(ValueError, match="Sentinel Edge approval is required"):
         prepare_pulse_packet(intent, sentinel)
 
@@ -295,6 +309,8 @@ def test_trade_intent_blocks_when_risk_controls_are_invalid():
     assert intent.action == "HOLD"
     assert intent.risk_plan is None
     assert sentinel.status == "rejected"
+    assert sentinel.checks[0].name == "intent_ready"
+    assert sentinel.checks[0].status == "failed"
     assert any("risk budget" in blocker for blocker in intent.blockers)
     assert any("stop distance" in blocker for blocker in intent.blockers)
 
@@ -330,12 +346,14 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["intent"]["confidence_breakdown"]
     assert body["intent"]["confidence_breakdown"][0]["name"] == "Dark pool level"
     assert body["intent"]["quality_flags"]
+    assert body["sentinel"]["checks"]
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"
         assert body["pulse_packet"]["requires_manual_execution"] is True
         assert body["intent"]["risk_plan"]["max_risk_dollars"] == 750.0
         assert body["pulse_packet"]["risk_plan"]["max_position_notional"] == 40000.0
         assert body["pulse_packet"]["quality_flags"] == body["intent"]["quality_flags"]
+        assert body["pulse_packet"]["sentinel_checks"] == body["sentinel"]["checks"]
         assert body["sentinel"]["confirmation"]["observed_spread_bps"] == 5.0
     else:
         assert body["pulse_packet"] is None
