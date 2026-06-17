@@ -213,7 +213,7 @@ FINRA public OTC/ATS data is delayed and aggregate. It is not an omniscient real
 
 Real-time options flow, GEX, VEX, and live off-lit trade feeds require licensed providers. The app is prepared for those integrations, but demo mode uses deterministic synthetic data.
 
-The source confirmation plan treats FINRA OTC transparency as context. Higher-confidence trade confirmation requires real-time price/NBBO, liquidity/depth, options-flow, halt/LULD, and material-news sources before Sentinel approval is allowed to prepare Pulse communication. Operators can raise `min_source_confirmation_weight` from `0` to enforce this as a hard gate. The dashboard also shows source-adjusted confidence so an unconfirmed but high-confluence setup is visibly weaker than one backed by live confirmation sources.
+The source confirmation plan treats FINRA OTC transparency as context only when the active workflow is using FINRA or another configured provider explicitly supplies it. Demo workflows do not claim FINRA context availability. Higher-confidence trade confirmation requires real-time price/NBBO, liquidity/depth, options-flow, halt/LULD, and material-news sources before Sentinel approval is allowed to prepare Pulse communication. Operators can raise `min_source_confirmation_weight` from `0` to enforce this as a hard gate. The dashboard also shows source-adjusted confidence so an unconfirmed but high-confluence setup is visibly weaker than one backed by live confirmation sources.
 
 Dark pool prints can identify areas where institutional volume occurred. They do not prove intent. The level engine ranks areas of interest; it does not issue trade entries.
 

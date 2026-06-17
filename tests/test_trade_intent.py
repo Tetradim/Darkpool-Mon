@@ -383,6 +383,8 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["sentinel"]["checks"]
     assert body["confirmation_sources"]["sources"]
     assert any(source["id"] == "finra_otc_transparency" for source in body["confirmation_sources"]["sources"])
+    finra_source = next(source for source in body["confirmation_sources"]["sources"] if source["id"] == "finra_otc_transparency")
+    assert finra_source["status"] == "missing"
     assert "real-time price/NBBO" in body["confirmation_sources"]["recommended_next_sources"][0]
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"

@@ -25,3 +25,33 @@ def test_trade_confirmation_plan_separates_available_context_from_missing_confir
     assert plan.available_confirmation_weight == 0
     assert "real-time price/NBBO" in plan.recommended_next_sources[0]
     assert "context source available" in plan.summary
+
+
+def test_information_sources_endpoint_does_not_mark_finra_available_for_demo_workflow():
+    from fastapi.testclient import TestClient
+
+    import server
+
+    client = TestClient(server.app)
+    response = client.get("/darkpool/information-sources?active_provider=demo")
+
+    assert response.status_code == 200, response.text
+    plan = response.json()["confirmation_plan"]
+    by_id = {source["id"]: source for source in plan["sources"]}
+    assert by_id["finra_otc_transparency"]["status"] == "missing"
+    assert "no darkpool context source available" in plan["summary"]
+
+
+def test_information_sources_endpoint_marks_finra_available_for_finra_workflow():
+    from fastapi.testclient import TestClient
+
+    import server
+
+    client = TestClient(server.app)
+    response = client.get("/darkpool/information-sources?active_provider=finra")
+
+    assert response.status_code == 200, response.text
+    plan = response.json()["confirmation_plan"]
+    by_id = {source["id"]: source for source in plan["sources"]}
+    assert by_id["finra_otc_transparency"]["status"] == "available"
+    assert "context source available" in plan["summary"]

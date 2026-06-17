@@ -431,6 +431,14 @@ PROVIDERS: dict[str, DataProvider] = {
 }
 
 
+def configured_market_providers(active_provider: str) -> list[str]:
+    configured = {active_provider.lower()}
+    for name, provider_obj in PROVIDERS.items():
+        if bool(getattr(provider_obj, "api_key", False)):
+            configured.add(name)
+    return sorted(configured)
+
+
 def get_provider(name: str) -> DataProvider:
     """Get a provider by name."""
     if name not in PROVIDERS:
@@ -676,11 +684,7 @@ async def get_darkpool_information_sources(
     active_provider: str = Query("demo", description="Active source provider for current workflow"),
 ):
     """Return market information sources and their confirmation roles."""
-    configured_providers = [
-        name
-        for name, provider_obj in PROVIDERS.items()
-        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
-    ]
+    configured_providers = configured_market_providers(active_provider)
     plan = build_trade_confirmation_plan(active_provider=active_provider, configured_providers=configured_providers)
     return {
         "active_provider": active_provider,
@@ -715,11 +719,7 @@ async def get_darkpool_trade_intent(
     include_pulse_packet: bool = Query(False),
 ):
     """Build a user-readable trade intent and gate it through Sentinel Edge."""
-    configured_providers = [
-        name
-        for name, provider_obj in PROVIDERS.items()
-        if name in {"demo", "finra"} or bool(getattr(provider_obj, "api_key", False))
-    ]
+    configured_providers = configured_market_providers(provider)
     preferences = TradingPreferences(
         min_score=min_score,
         max_distance_pct=max_distance_pct,

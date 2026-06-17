@@ -847,7 +847,7 @@ git commit -m "refactor: move darkpool routes into router"
 - Test: `tests/test_source_catalog.py`
 - Test: `tests/test_trade_intent.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 def test_demo_confirmation_plan_does_not_claim_finra_context_available():
@@ -866,7 +866,7 @@ def test_finra_confirmation_plan_marks_finra_context_available():
     assert "context source available" in plan.summary
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -880,7 +880,7 @@ Expected:
 AssertionError: expected missing but got available
 ```
 
-- [ ] **Step 3: Remove unconditional FINRA configured provider injection**
+- [x] **Step 3: Remove unconditional FINRA configured provider injection**
 
 In route code or `MarketContext`, build configured providers from actual runtime state:
 
@@ -893,7 +893,7 @@ for name, provider_obj in PROVIDERS.items():
 
 Do not add `"finra"` unless the active provider is FINRA or a real FINRA adapter is explicitly configured.
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -907,7 +907,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server.py darkpool/source_catalog.py tests/test_source_catalog.py tests/test_trade_intent.py
