@@ -417,7 +417,9 @@ def build_trade_intent(
         blockers,
     )
     source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
-    risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
+    risk_blockers: list[str] = []
+    risk_plan = _build_risk_plan(score, candidate_action, preferences, risk_blockers)
+    blockers.extend(risk_blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
     action: TradeAction = "HOLD" if status == "blocked" else candidate_action

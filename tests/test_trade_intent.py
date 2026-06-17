@@ -241,6 +241,22 @@ def test_trade_intent_blocks_when_source_confirmation_weight_is_below_user_minim
     )
 
 
+def test_trade_intent_keeps_risk_plan_when_blocked_by_source_coverage_only():
+    intent = build_trade_intent(
+        _score(score=82.0),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+        source_confirmation_weight=0.9,
+        source_coverage_complete=False,
+        missing_required_source_coverage=["Trading halt/LULD blocker"],
+    )
+
+    assert intent.status == "blocked"
+    assert intent.action == "HOLD"
+    assert intent.risk_plan is not None
+    assert intent.risk_plan.max_risk_dollars == 500.0
+    assert any("required source coverage is incomplete" in blocker for blocker in intent.blockers)
+
+
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
     preferences = TradingPreferences(
         min_score=80,
