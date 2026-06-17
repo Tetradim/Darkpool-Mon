@@ -677,7 +677,7 @@ git commit -m "feat: add pulse packet guardrails"
 - Modify: `server.py`
 - Test: `tests/test_runtime_startup.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 import server
@@ -692,7 +692,7 @@ def test_create_app_returns_registered_fastapi_app():
     assert "/alerts/route" in paths
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -706,7 +706,7 @@ Expected:
 AttributeError: module 'server' has no attribute 'create_app'
 ```
 
-- [ ] **Step 3: Add factory wrapper**
+- [x] **Step 3: Add factory wrapper**
 
 Because the current module already creates `app`, start with a compatibility-preserving factory:
 
@@ -725,7 +725,7 @@ if __name__ == "__main__":
     uvicorn.run(create_app(), host="0.0.0.0", port=port)
 ```
 
-- [ ] **Step 4: Run test to verify GREEN**
+- [x] **Step 4: Run test to verify GREEN**
 
 Run:
 
@@ -739,7 +739,7 @@ Expected:
 1 passed
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server.py tests/test_runtime_startup.py
@@ -1214,7 +1214,7 @@ git commit -m "refactor: split trade intent frontend view"
 - Create: `tests/test_runtime_startup.py`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write the failing runtime smoke test**
+- [x] **Step 1: Write the failing runtime smoke test**
 
 ```python
 import os
@@ -1268,7 +1268,7 @@ def test_python_server_registers_late_routes_at_runtime():
         process.wait(timeout=10)
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run:
 
@@ -1284,7 +1284,7 @@ Expected:
 
 The current branch should already pass after `f127de5`, but this test makes the runtime contract permanent.
 
-- [ ] **Step 3: Update README testing section**
+- [x] **Step 3: Update README testing section**
 
 Add:
 
@@ -1292,7 +1292,7 @@ Add:
 Runtime smoke coverage includes a subprocess check for the documented `python server.py` startup path, including routes declared late in the module.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/test_runtime_startup.py README.md

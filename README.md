@@ -199,6 +199,8 @@ Run production build:
 npm run build
 ```
 
+Runtime smoke coverage includes a subprocess check for the documented `python server.py` startup path, including routes declared late in the module.
+
 Run dependency audit:
 
 ```bash

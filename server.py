@@ -3571,6 +3571,10 @@ async def get_server_thresholds(token: str = Query(...)):
     return {"thresholds": alert_processor.get_thresholds(user_data["user_id"])}
 
 
+def create_app() -> FastAPI:
+    return app
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -3579,5 +3583,5 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(create_app(), host="0.0.0.0", port=port)
 
