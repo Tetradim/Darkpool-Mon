@@ -80,6 +80,15 @@ def _missing_required_coverage_labels(plan: TradeConfirmationPlan) -> list[str]:
     return [item.label for item in plan.coverage if item.required and item.status != "met"]
 
 
+def _attach_source_coverage(packet: dict, plan: TradeConfirmationPlan, missing_required: list[str]) -> dict:
+    return {
+        **packet,
+        "required_source_coverage_complete": plan.required_coverage_complete,
+        "missing_required_source_coverage": missing_required,
+        "source_coverage": [item.model_dump(mode="json") for item in plan.coverage],
+    }
+
+
 async def build_trade_intent_report(
     symbol: str,
     provider: str,
@@ -107,17 +116,24 @@ async def build_trade_intent_report(
             pulse_status=_pulse_status(include_pulse_packet, None, None, None),
         )
 
+    missing_required_coverage = _missing_required_coverage_labels(context.confirmation_plan)
     intent = build_trade_intent(
         context.scores[0],
         preferences,
         source_confirmation_weight=context.confirmation_plan.available_confirmation_weight,
         source_coverage_complete=context.confirmation_plan.required_coverage_complete,
-        missing_required_source_coverage=_missing_required_coverage_labels(context.confirmation_plan),
+        missing_required_source_coverage=missing_required_coverage,
     )
     sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None
     if include_pulse_packet and sentinel.status == "approved":
-        pulse_packet = PulseGateway().validate_packet(prepare_pulse_packet(intent, sentinel))
+        pulse_packet = PulseGateway().validate_packet(
+            _attach_source_coverage(
+                prepare_pulse_packet(intent, sentinel),
+                context.confirmation_plan,
+                missing_required_coverage,
+            )
+        )
 
     return TradeIntentReport(
         context=context,

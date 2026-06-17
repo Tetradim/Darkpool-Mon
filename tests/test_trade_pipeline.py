@@ -33,6 +33,15 @@ async def test_trade_pipeline_prepares_pulse_only_after_sentinel_approval():
     assert report.pulse_status.status == "prepared"
     assert report.pulse_status.sentinel_status == "approved"
     assert report.pulse_packet["requires_manual_execution"] is True
+    assert report.pulse_packet["required_source_coverage_complete"] is False
+    assert report.pulse_packet["missing_required_source_coverage"] == [
+        "Real-time price/NBBO confirmation",
+        "Liquidity and depth confirmation",
+        "Trading halt/LULD blocker",
+        "Material news context",
+    ]
+    coverage = {item["role"]: item for item in report.pulse_packet["source_coverage"]}
+    assert coverage["price_confirmation"]["status"] == "missing"
 
 
 @pytest.mark.asyncio

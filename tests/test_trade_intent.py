@@ -445,6 +445,11 @@ def test_trade_intent_endpoint_clears_source_coverage_block_when_required_adapte
     assert body["confirmation_sources"]["required_coverage_complete"] is True
     assert body["intent"]["missing_required_source_coverage"] == []
     assert body["pulse_status"]["status"] == "prepared"
+    assert body["pulse_packet"]["required_source_coverage_complete"] is True
+    assert body["pulse_packet"]["missing_required_source_coverage"] == []
+    coverage = {item["role"]: item for item in body["pulse_packet"]["source_coverage"]}
+    assert coverage["risk_blocker"]["status"] == "met"
+    assert coverage["news_context"]["status"] == "met"
     assert body["pulse_packet"]["requires_manual_execution"] is True
 
 
