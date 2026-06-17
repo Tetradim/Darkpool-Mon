@@ -71,10 +71,11 @@ describe('summarizePulsePacket', () => {
         action: 'BUY',
         symbol: 'AAPL',
         confidence: 91.25,
+        source_adjusted_confidence: 68.5,
         risk_plan: { max_risk_dollars: 500, position_notional: 50000 },
       })
     ).toBe(
-      'Pulse packet prepared for AAPL BUY at 91.3 confidence with $500 max risk and $50.00K planned notional; manual execution still required.'
+      'Pulse packet prepared for AAPL BUY at 91.3 raw / 68.5 source-adjusted confidence with $500 max risk and $50.00K planned notional; manual execution still required.'
     );
   });
 });

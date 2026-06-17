@@ -181,6 +181,8 @@ The endpoint returns:
 
 Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld.
 
+The dashboard Pulse summary shows raw confidence alongside source-adjusted confidence when a packet is available, so manual reviewers can see how much confirmation-source coverage discounted the original confluence score before considering any Pulse handoff.
+
 ## Testing
 
 Run backend tests:

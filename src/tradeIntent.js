@@ -35,16 +35,18 @@ export const summarizePulsePacket = (packet) => {
   if (!packet) {
     return 'Pulse packet withheld until Sentinel Edge approval.';
   }
+  const rawConfidence = Number(packet.confidence).toFixed(1);
+  const confidence = Number.isFinite(Number(packet.source_adjusted_confidence))
+    ? `${rawConfidence} raw / ${Number(packet.source_adjusted_confidence).toFixed(1)} source-adjusted`
+    : rawConfidence;
   if (packet.risk_plan) {
-    return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${Number(packet.confidence).toFixed(
-      1
-    )} confidence with ${formatIntentMoney(packet.risk_plan.max_risk_dollars)} max risk and ${formatIntentMoney(
+    return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence with ${formatIntentMoney(
+      packet.risk_plan.max_risk_dollars
+    )} max risk and ${formatIntentMoney(
       packet.risk_plan.position_notional
     )} planned notional; manual execution still required.`;
   }
-  return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${Number(packet.confidence).toFixed(
-    1
-  )} confidence; manual execution still required.`;
+  return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence; manual execution still required.`;
 };
 
 export const formatRiskPlanSummary = (riskPlan) => {
