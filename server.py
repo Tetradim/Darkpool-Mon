@@ -14,6 +14,12 @@ from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnec
 from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
+from darkpool.alerting import build_alert_candidates
+from darkpool.confluence import classify_exposure_nodes, score_confluence
+from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
+from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
+from darkpool.providers import ProviderError, fetch_provider_result
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -375,11 +381,33 @@ class IntrinioProvider(DataProvider):
         return []
 
 
+class DemoProvider(DataProvider):
+    """Offline deterministic provider for local demos, tests, and degraded mode."""
+
+    name = "demo"
+
+    async def fetch_otc_data(self, symbol: str | None, tier: str = "T1", is_ats: bool = True):
+        result = await fetch_provider_result(symbol, provider="demo", limit=500)
+        return [
+            {
+                "symbol": item.symbol,
+                "price": item.price,
+                "size": item.size,
+                "direction": item.direction,
+                "venue": item.venue,
+                "timestamp": item.timestamp.isoformat(),
+                "notional": item.notional,
+            }
+            for item in result.prints
+        ]
+
+
 # ============================================================================
 # Provider Registry
 # ============================================================================
 
 PROVIDERS: dict[str, DataProvider] = {
+    "demo": DemoProvider(),
     "finra": FINRAProvider(),
     "polygon": PolygonProvider(),
     "intrinio": IntrinioProvider(),
@@ -391,6 +419,27 @@ def get_provider(name: str) -> DataProvider:
     if name not in PROVIDERS:
         raise HTTPException(400, f"Unknown provider: {name}")
     return PROVIDERS[name]
+
+
+async def get_provider_records(symbol: str | None, provider: str = "demo", limit: int = 500) -> list[dict]:
+    """Return provider prints in the legacy weekly-summary shape used by chart routes."""
+    try:
+        result = await fetch_provider_result(symbol, provider=provider, limit=limit)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    return [
+        {
+            "issueSymbolIdentifier": item.symbol,
+            "totalWeeklyShareQuantity": item.size,
+            "totalWeeklyTradeCount": 1,
+            "lastUpdateDate": item.timestamp.date().isoformat(),
+            "weekStartDate": item.timestamp.date().isoformat(),
+            "price": item.price,
+            "notional": item.notional,
+        }
+        for item in result.prints
+    ]
 
 
 # ============================================================================
@@ -461,7 +510,7 @@ async def list_providers():
 @app.get("/darkpool/otc", response_model=OTCAggregateResponse)
 async def get_otc_aggregate(
     symbol: str | None = Query(None, description="Stock symbol (e.g., AAPL)"),
-    provider: str = Query("finra", description="Data provider: finra, polygon, intrinio"),
+    provider: str = Query("demo", description="Data provider: demo, finra, polygon, intrinio"),
     tier: Literal["T1", "T2", "OTCE"] = Query(
         "T1",
         description="T1=S&P500, T2=NMS, OTCE=OTC equities",
@@ -494,7 +543,7 @@ async def get_otc_aggregate(
 @app.get("/darkpool/trades")
 async def get_recent_trades(
     symbol: str = Query(..., description="Stock symbol"),
-    provider: str = Query("finra", description="Data provider"),
+    provider: str = Query("demo", description="Data provider"),
     limit: int = Query(100, ge=1, le=5000, description="Max results"),
 ):
     """Get recent dark pool trades for a symbol."""
@@ -512,10 +561,183 @@ async def get_recent_trades(
     }
 
 
+@app.get("/darkpool/levels")
+async def get_darkpool_levels(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    price_bucket: float = Query(0.10, gt=0, le=5, description="Price clustering bucket"),
+    limit: int = Query(25, ge=1, le=200),
+):
+    """Cluster dark pool prints into support/resistance context levels."""
+    try:
+        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)[:limit]
+    stock = get_stock(symbol)
+    spot = float(stock.get("basePrice", 100.0))
+    return {
+        "symbol": symbol.upper(),
+        "provider": provider_result.provider,
+        "degraded": provider_result.degraded,
+        "message": provider_result.message,
+        "spot_price": spot,
+        "levels": [level.model_dump(mode="json") for level in levels],
+        "air_pockets": detect_air_pockets(levels, spot),
+        "fetched_at": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/darkpool/confluence")
+async def get_darkpool_confluence(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    price_bucket: float = Query(0.10, gt=0, le=5),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Score dark pool levels against Heatseeker-style exposure context and options flow."""
+    try:
+        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    stock = get_stock(symbol)
+    spot = float(stock.get("basePrice", 100.0))
+    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
+    exposure_nodes = sample_exposure_nodes(symbol, spot)
+    options_flow = sample_options_flow(symbol)
+    scores = score_confluence(symbol, spot, levels, exposure_nodes, options_flow)[:limit]
+    node_map = classify_exposure_nodes(symbol, spot, exposure_nodes)
+
+    return {
+        "symbol": symbol.upper(),
+        "provider": provider_result.provider,
+        "degraded": provider_result.degraded,
+        "message": provider_result.message,
+        "spot_price": spot,
+        "node_map": {
+            key: value.model_dump(mode="json") if hasattr(value, "model_dump") else [
+                item.model_dump(mode="json") for item in value
+            ] if isinstance(value, list) else value
+            for key, value in node_map.items()
+        },
+        "scores": [score.model_dump(mode="json") for score in scores],
+        "fetched_at": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/darkpool/alert-candidates")
+async def get_darkpool_alert_candidates(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    price_bucket: float = Query(0.10, gt=0, le=5),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Generate explainable alert candidates without auto-execution."""
+    try:
+        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    stock = get_stock(symbol)
+    spot = float(stock.get("basePrice", 100.0))
+    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
+    scores = score_confluence(symbol, spot, levels, sample_exposure_nodes(symbol, spot), sample_options_flow(symbol))
+    alerts = build_alert_candidates(symbol, levels, scores)[:limit]
+    return {
+        "symbol": symbol.upper(),
+        "provider": provider_result.provider,
+        "degraded": provider_result.degraded,
+        "message": provider_result.message,
+        "alerts": [alert.model_dump(mode="json") for alert in alerts],
+    }
+
+
+@app.get("/api/full")
+async def api_full(
+    symbol: str | None = Query(None, description="Optional stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    limit: int = Query(250, ge=1, le=1000),
+):
+    """Compatibility endpoint returning normalized dark pool prints."""
+    try:
+        result = await fetch_provider_result(symbol, provider=provider, limit=limit)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    return {
+        "provider": result.provider,
+        "degraded": result.degraded,
+        "message": result.message,
+        "count": len(result.prints),
+        "transactions": [print_.model_dump(mode="json") for print_ in result.prints],
+    }
+
+
+@app.get("/api/aggregate/{symbol}")
+async def api_aggregate(symbol: str, provider: str = Query("demo")):
+    """Compatibility endpoint aggregating dark pool activity by symbol."""
+    try:
+        result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    total_size = sum(print_.size for print_ in result.prints)
+    total_notional = sum(print_.notional for print_ in result.prints)
+    buy_size = sum(print_.size for print_ in result.prints if print_.direction == "BUY")
+    sell_size = sum(print_.size for print_ in result.prints if print_.direction == "SELL")
+
+    return {
+        "symbol": symbol.upper(),
+        "provider": result.provider,
+        "degraded": result.degraded,
+        "print_count": len(result.prints),
+        "total_size": total_size,
+        "total_notional": round(total_notional, 2),
+        "buy_size": buy_size,
+        "sell_size": sell_size,
+        "buy_ratio": round(buy_size / total_size, 4) if total_size else 0,
+    }
+
+
+@app.get("/api/sentiment")
+async def api_sentiment(provider: str = Query("demo")):
+    """Compatibility endpoint for market-wide dark pool sentiment."""
+    try:
+        result = await fetch_provider_result(None, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    buy_notional = sum(print_.notional for print_ in result.prints if print_.direction == "BUY")
+    sell_notional = sum(print_.notional for print_ in result.prints if print_.direction == "SELL")
+    total = buy_notional + sell_notional
+    buy_ratio = buy_notional / total if total else 0.5
+    sentiment = "bullish" if buy_ratio >= 0.57 else "bearish" if buy_ratio <= 0.43 else "neutral"
+    by_symbol: dict[str, dict] = {}
+    for print_ in result.prints:
+        bucket = by_symbol.setdefault(print_.symbol, {"buy": 0.0, "sell": 0.0, "notional": 0.0})
+        bucket["notional"] += print_.notional
+        if print_.direction == "BUY":
+            bucket["buy"] += print_.notional
+        elif print_.direction == "SELL":
+            bucket["sell"] += print_.notional
+
+    return {
+        "provider": result.provider,
+        "degraded": result.degraded,
+        "sentiment": sentiment,
+        "buy_ratio": round(buy_ratio, 4),
+        "buy_notional": round(buy_notional, 2),
+        "sell_notional": round(sell_notional, 2),
+        "symbols": by_symbol,
+    }
+
+
 @app.get("/visualization/area")
 async def get_area_chart(
     symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("finra", description="Data provider"),
+    provider: str = Query("demo", description="Data provider"),
     timeframe: int = Query(30, description="Days of history"),
 ):
     """Get Plotly-ready area chart for Grafana (Infinity compatible).
@@ -523,10 +745,7 @@ async def get_area_chart(
     Returns Plotly JSON for area chart showing buy/sell volume over time.
     Use with Grafana Infinity datasource or HTTP data source.
     """
-    from finra_helper import aget_full_data
-    
-    # Get data
-    data = await aget_full_data(symbol, "T1", True)
+    data = await get_provider_records(symbol, provider)
     
     # Transform to time series (aggregate by day)
     daily_data = {}
@@ -608,7 +827,7 @@ async def get_area_chart(
 @app.get("/visualization/bar")
 async def get_bar_chart(
     symbol: str = Query(None, description="Stock symbol (optional for all)"),
-    provider: str = Query("finra", description="Data provider"),
+    provider: str = Query("demo", description="Data provider"),
     limit: int = Query(10, description="Top N results"),
 ):
     """Get Plotly-ready bar chart for Grafana.
@@ -616,9 +835,7 @@ async def get_bar_chart(
     Returns bar chart JSON - compatible with Infinity datasource.
     Shows top symbols by dark pool volume.
     """
-    from finra_helper import aget_full_data
-    
-    data = await aget_full_data(symbol, "T1", True) if symbol else await aget_full_data(None, "T1", True)
+    data = await get_provider_records(symbol, provider)
     
     # Aggregate by symbol
     symbol_data = {}
@@ -675,7 +892,7 @@ async def get_bar_chart(
 @app.get("/visualization/combined")
 async def get_combined_chart(
     symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("finra", description="Data provider"),
+    provider: str = Query("demo", description="Data provider"),
 ):
     """Get Plotly combined bar + line chart for Grafana.
     
@@ -685,9 +902,7 @@ async def get_combined_chart(
     
     This is the bar+line combo that OpenBB uses with Plotly.
     """
-    from finra_helper import aget_full_data
-    
-    data = await aget_full_data(symbol, "T1", True)
+    data = await get_provider_records(symbol, provider)
     
     # Aggregate by date
     daily_data = {}
@@ -761,6 +976,7 @@ async def get_combined_chart(
 @app.get("/grafana/table")
 async def get_grafana_table(
     symbol: str = Query(None, description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider"),
     limit: int = Query(100, description="Max rows"),
 ):
     """Grafana Infinity compatible table format.
@@ -768,9 +984,7 @@ async def get_grafana_table(
     Returns JSON in format that Grafana Infinity plugin can parse.
     Use: URL = /grafana/table?symbol=AAPL
     """
-    from finra_helper import aget_full_data
-    
-    data = await aget_full_data(symbol, "T1", True) if symbol else await aget_full_data(None, "T1", True)
+    data = await get_provider_records(symbol, provider, limit=limit)
     
     # Return array of objects (Infinity-compatible)
     return [
@@ -788,14 +1002,13 @@ async def get_grafana_table(
 @app.get("/grafana/timeseries")
 async def get_grafana_timeseries(
     symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider"),
 ):
     """Grafana timeseries compatible format.
     
     Returns data in Grafana-native timeseries format.
     """
-    from finra_helper import aget_full_data
-    
-    data = await aget_full_data(symbol, "T1", True)
+    data = await get_provider_records(symbol, provider)
     
     # Aggregate by date
     daily_data = {}
@@ -895,8 +1108,6 @@ async def get_nbbo_quote(
                 }
 
     # Fallback: Generate synthetic NBBO for demo
-    from dataGenerator import MAG7_STOCKS
-
     stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
     price = stock.get("basePrice", 100)
     spread = price * 0.001  # 10 bps spread
@@ -1014,7 +1225,6 @@ async def get_nbbo_trades(
 
     # Fallback: Generate synthetic trades
     import random
-    from dataGenerator import generateTransaction
 
     trades = []
     total_vwap = 0
@@ -1141,8 +1351,7 @@ async def get_orderbook_imbalance(
     - Cumulative depth at each level  
     - Order book pressure indicator
     """
-    from dataGenerator import MAG7_STOCKS
-    
+
     stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
     mid = stock.get("basePrice", 100)
     
@@ -1219,8 +1428,7 @@ async def get_volume_profile(
 ):
     """Get volume profile analysis."""
     import random
-    from dataGenerator import MAG7_STOCKS
-    
+
     stock = MAG7_STOCKS.get(symbol.upper(), {"basePrice": 100})
     mid = stock.get("basePrice", 100)
     
@@ -1433,8 +1641,6 @@ async def get_whale_feed(
     limit: int = Query(100, description="Max results"),
 ):
     """Get recent whale activity feed."""
-    from dataGenerator import generateTransaction, MAG7_STOCKS
-
     # Generate transactions and filter
     whales = []
     for _ in range(limit * 3):
@@ -1484,7 +1690,6 @@ async def get_highest_call_vol_change(
 ):
     """Get stocks with highest call volume change."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(days_back * 100)
     results = []
@@ -1525,7 +1730,6 @@ async def get_highest_put_vol_change(
 ):
     """Get stocks with highest put volume change."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(days_back * 200 + 1)
     results = []
@@ -1566,7 +1770,6 @@ async def get_high_vol_cheapies(
 ):
     """Get high volume cheap contracts (< $5 ask)."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(300)
     results = []
@@ -1610,7 +1813,6 @@ async def get_high_vol_leaps(
 ):
     """Get high volume LEAP contracts (6+ months)."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(400)
     results = []
@@ -1654,7 +1856,6 @@ async def get_most_otm_strikes(
 ):
     """Get most out-of-the-money strikes."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(500)
     results = []
@@ -1701,7 +1902,6 @@ async def get_large_otm_oi(
 ):
     """Get large OTM open interest positions."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(600)
     results = []
@@ -1748,7 +1948,6 @@ async def get_market_cap_milestones(
 ):
     """Get market cap milestone tracking."""
     import random
-    from dataGenerator import MAG7_STOCKS
 
     random.seed(700)
     results = []
@@ -2618,15 +2817,14 @@ class SlashCommand(BaseModel):
 @app.post("/discord/commands")
 async def handle_slash_command(command: SlashCommand):
     """Handle Discord slash commands."""
-    from finra_helper import aget_full_data
-
     cmd_name = command.data.get("name", "")
     options = {opt["name"]: opt.get("value") for opt in command.data.get("options", [])}
 
     if cmd_name == "darkpool":
         symbol = options.get("symbol")
         tier = options.get("tier", "T1")
-        data = await aget_full_data(symbol, tier, True) if symbol else []
+        provider = options.get("provider", "demo")
+        data = await get_provider_records(symbol, provider)
         return {"type": 4, "data": {"content": f"📊 Darkpool Data for {symbol or 'ALL'}: {len(data):,} records (Tier {tier})"}}
 
     return {"type": 4, "data": {"content": "Unknown command"}}

@@ -9,14 +9,13 @@ export const MAG7_STOCKS = {
   TSLA: { symbol: 'TSLA', name: 'Tesla', basePrice: 175.20, weight: 0.11 },
 };
 
-// Generate a random transaction size between $1M and $50M
+// Generate a random transaction size in shares.
 export const generateTransactionSize = () => {
-  const min = 1;
-  const max = 50;
-  // Use exponential distribution for more realistic large transactions
+  const min = 10000;
+  const max = 650000;
   const u = Math.random();
   const size = min + (max - min) * Math.pow(u, 2);
-  return Math.round(size * 100) / 100;
+  return Math.round(size);
 };
 
 // Generate a random price variation
@@ -67,8 +66,8 @@ export const generateHistoricalData = (symbol, hours = 24) => {
 
   for (let i = 48; i >= 0; i--) {
     const timestamp = now - (i * interval);
-    const buyVolume = Math.round(Math.random() * 20 + 5);
-    const sellVolume = Math.round(Math.random() * 20 + 5);
+    const buyVolume = Math.round((Math.random() * 20 + 5) * 100) / 100;
+    const sellVolume = Math.round((Math.random() * 20 + 5) * 100) / 100;
     
     data.push({
       time: timestamp,

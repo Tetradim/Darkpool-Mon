@@ -22,26 +22,13 @@ import SettingsModal from './SettingsModal';
 import OptionsDashboard from './OptionsDashboard';
 import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
 import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
+import { computeZScore, rowsToCsv } from './flowEngine';
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
 
 const exportTransactionsToCsv = (rows) => {
-  const header = ['id', 'timestamp', 'symbol', 'direction', 'size_millions', 'price', 'notional'];
-  const lines = rows.map((row) => [
-    row.id,
-    row.timestamp.toISOString(),
-    row.symbol,
-    row.direction,
-    row.size,
-    row.price,
-    row.value,
-  ]);
-
-  const csv = [header, ...lines]
-    .map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
+  const csv = rowsToCsv(rows);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -51,15 +38,6 @@ const exportTransactionsToCsv = (rows) => {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
-};
-
-const computeZScore = (values, nextValue) => {
-  if (values.length < 5) return 0;
-  const mean = values.reduce((acc, value) => acc + value, 0) / values.length;
-  const variance = values.reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / values.length;
-  const stdDev = Math.sqrt(variance);
-  if (stdDev === 0) return 0;
-  return (nextValue - mean) / stdDev;
 };
 
 const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
@@ -111,7 +89,7 @@ const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
               ${stock.basePrice.toFixed(2)}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              Vol: {formatVolume(totalVolume)} @ {threshold}K
+              Flow: {totalVolume.toFixed(1)}M
             </p>
           </div>
 
@@ -172,7 +150,7 @@ const TransactionItem = ({ transaction, isNew }) => {
 
       <div className="text-right">
         <p className="font-mono font-bold text-white">
-          ${formatVolume(transaction.size)}M
+          {formatVolume(transaction.size)} sh
         </p>
         <p className={`text-xs font-medium ${isBuy ? 'text-accent-green' : 'text-accent-red'}`}>
           {transaction.direction}
@@ -263,7 +241,7 @@ export default function App() {
         const isWhale = transaction.size >= whaleThreshold * 1000; // Convert to actual shares
 
         if (isWhale || zScore >= 2.2) {
-          const reason = isWhale ? `Whale print ${transaction.size.toFixed(2)}M` : `Unusual size z-score ${zScore.toFixed(2)}`;
+          const reason = isWhale ? `Whale print ${formatVolume(transaction.size)} shares` : `Unusual size z-score ${zScore.toFixed(2)}`;
           setAlerts((prevAlerts) => [
             {
               id: `${transaction.id}-ALERT`,
@@ -296,9 +274,9 @@ export default function App() {
         const nextPoint = {
           time: Date.now(),
           label: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          buyVolume: transaction.direction === 'BUY' ? transaction.size : 0,
-          sellVolume: transaction.direction === 'SELL' ? transaction.size : 0,
-          totalVolume: transaction.size,
+          buyVolume: transaction.direction === 'BUY' ? transaction.value / 1000000 : 0,
+          sellVolume: transaction.direction === 'SELL' ? transaction.value / 1000000 : 0,
+          totalVolume: transaction.value / 1000000,
           price: transaction.price,
         };
         return {
@@ -314,19 +292,19 @@ export default function App() {
   const filteredTransactions = useMemo(() => {
     const baseFiltered = transactions.filter((transaction) => {
       const stockMatch = selectedStock === 'ALL' || transaction.symbol === selectedStock;
-      return stockMatch && transaction.size >= threshold;
+      return stockMatch && transaction.value >= threshold * 1000000;
     });
 
     if (feedSort === 'LARGEST') {
-      return [...baseFiltered].sort((a, b) => b.size - a.size);
+      return [...baseFiltered].sort((a, b) => b.value - a.value);
     }
 
     return baseFiltered;
   }, [transactions, selectedStock, threshold, feedSort]);
 
-  const totalVolume = transactions.reduce((acc, transaction) => acc + transaction.size, 0);
-  const buyVolume = transactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.size, 0);
-  const sellVolume = transactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.size, 0);
+  const totalVolume = transactions.reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
+  const buyVolume = transactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
+  const sellVolume = transactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
   const avgTradeSize = transactions.length ? totalVolume / transactions.length : 0;
   const whaleTrades = transactions.filter((transaction) => transaction.size >= whaleThreshold * 1000).length;
   const buyRatio = totalVolume > 0 ? (buyVolume / totalVolume * 100).toFixed(1) : 50;
@@ -334,8 +312,8 @@ export default function App() {
   const mainChartData = selectedStock === 'ALL'
     ? Object.keys(MAG7_STOCKS).map((symbol) => {
       const stockTransactions = transactions.filter((transaction) => transaction.symbol === symbol);
-      const buyVol = stockTransactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.size, 0);
-      const sellVol = stockTransactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.size, 0);
+      const buyVol = stockTransactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
+      const sellVol = stockTransactions.filter((transaction) => transaction.direction === 'SELL').reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
       return {
         name: symbol,
         buy: buyVol,
@@ -369,7 +347,7 @@ export default function App() {
 
           {/* View Mode Toggle */}
           <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
-            {['dashboard', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
+            {['dashboard', 'options', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -835,13 +813,15 @@ export default function App() {
                   </div>
                   <p className="text-xs text-gray-300 mt-2">{alert.reason}</p>
                   <p className="text-xs mt-1 font-mono text-white">
-                    {alert.direction} ${alert.size.toFixed(2)}M
+                    {alert.direction} {formatVolume(alert.size)} sh
                   </p>
                 </div>
               ))
             )}
           </div>
         </div>
+      </div>
+        </>
       )}
 
       <SettingsModal

@@ -4,8 +4,12 @@ Based on OpenBB's implementation for fetching OTC/dark pool data.
 https://github.com/OpenBB-finance/OpenBB/tree/develop/openbb_platform/providers/finra
 """
 
+from __future__ import annotations
+
 import asyncio
 from typing import Any
+
+import httpx
 
 
 async def aget_full_data(symbol: str | None, tier: str = "T1", is_ats: bool = True):

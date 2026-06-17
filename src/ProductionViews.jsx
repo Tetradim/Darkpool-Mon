@@ -388,4 +388,5 @@ const HealthView = () => {
   );
 };
 
+export { ScannerView, AlertsView, WatchlistView, HealthView };
 export default { ScannerView, AlertsView, WatchlistView, HealthView };
