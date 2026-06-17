@@ -31,6 +31,7 @@ class TradingPreferences(BaseModel):
     max_quality_caution_flags: int = Field(default=99, ge=0)
     min_quality_support_flags: int = Field(default=0, ge=0)
     min_source_confirmation_weight: float = Field(default=0.0, ge=0)
+    require_complete_source_coverage: bool = True
     require_directional_bias: bool = True
     allowed_actions: list[Literal["BUY", "SELL"]] = Field(default_factory=lambda: ["BUY", "SELL"])
 
@@ -349,6 +350,7 @@ def _apply_quality_gates(quality_flags: list[QualityFlag], preferences: TradingP
 
 def _apply_source_confirmation_gate(
     source_confirmation_weight: float,
+    source_coverage_complete: bool,
     preferences: TradingPreferences,
     blockers: list[str],
 ) -> None:
@@ -356,6 +358,11 @@ def _apply_source_confirmation_gate(
         blockers.append(
             f"source confirmation weight {source_confirmation_weight:.2f} is below user minimum "
             f"{preferences.min_source_confirmation_weight:.2f}"
+        )
+    if preferences.require_complete_source_coverage and not source_coverage_complete:
+        blockers.append(
+            "required source coverage is incomplete; configure price/NBBO, liquidity/depth, halt/LULD, "
+            "and material-news sources before Pulse"
         )
 
 
@@ -368,6 +375,7 @@ def build_trade_intent(
     score: ConfluenceScore,
     preferences: TradingPreferences | None = None,
     source_confirmation_weight: float = 0.0,
+    source_coverage_complete: bool = True,
 ) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -394,7 +402,7 @@ def build_trade_intent(
 
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
-    _apply_source_confirmation_gate(source_confirmation_weight, preferences, blockers)
+    _apply_source_confirmation_gate(source_confirmation_weight, source_coverage_complete, preferences, blockers)
     source_weight = round(max(0.0, source_confirmation_weight), 2)
     source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)

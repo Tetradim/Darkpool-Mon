@@ -362,6 +362,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     response = client.get(
         "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
         "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&require_source_coverage_complete=false"
         "&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000"
         "&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=20"
     )
@@ -373,6 +374,7 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert body["preferences"]["max_quality_caution_flags"] == 99
     assert body["preferences"]["min_quality_support_flags"] == 0
     assert body["preferences"]["min_source_confirmation_weight"] == 0.0
+    assert body["preferences"]["require_complete_source_coverage"] is False
     assert body["intent"]["status"] in {"ready_for_sentinel", "blocked"}
     assert "readable_summary" in body["intent"]
     assert body["intent"]["confidence_breakdown"]
@@ -398,12 +400,33 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
         assert body["pulse_packet"] is None
 
 
+def test_trade_intent_endpoint_defaults_to_blocking_pulse_until_required_source_coverage_is_complete():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["preferences"]["require_complete_source_coverage"] is True
+    assert body["confirmation_sources"]["required_coverage_complete"] is False
+    assert body["intent"]["status"] == "blocked"
+    assert body["sentinel"]["status"] == "rejected"
+    assert body["pulse_packet"] is None
+    assert body["pulse_status"]["status"] == "withheld"
+    assert any("required source coverage" in blocker for blocker in body["intent"]["blockers"])
+
+
 def test_trade_intent_endpoint_withholds_pulse_until_confirmation_is_complete():
     client = TestClient(server.app)
 
     response = client.get(
         "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
         "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&require_source_coverage_complete=false"
         "&price_confirmed=false&liquidity_confirmed=true&news_checked=true"
     )
 

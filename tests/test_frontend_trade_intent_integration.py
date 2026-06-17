@@ -21,6 +21,7 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "Max Caution Flags" in trade_intent_view
     assert "Min Support Flags" in trade_intent_view
     assert "Min Source Weight" in trade_intent_view
+    assert "Source Gate" in trade_intent_view
     assert "formatQualityFlags" in trade_intent_summary
     assert "Signal Quality Flags" in trade_intent_summary
     assert "formatSentinelChecks" in trade_intent_summary

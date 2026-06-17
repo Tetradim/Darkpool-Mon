@@ -104,7 +104,7 @@ Dark pool intelligence:
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
 - `GET /darkpool/information-sources?active_provider=finra`
-- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&max_quality_caution_flags=99&min_quality_support_flags=0&min_source_confirmation_weight=0&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
+- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&max_quality_caution_flags=99&min_quality_support_flags=0&min_source_confirmation_weight=0&require_source_coverage_complete=true&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
 
 Scanner and visualization:
 
@@ -163,9 +163,9 @@ Discord integration:
 
 ## Trade Intent Gate
 
-`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, max position notional, max quality caution flags, minimum quality support flags, and minimum configured source confirmation weight.
+`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, max position notional, max quality caution flags, minimum quality support flags, minimum configured source confirmation weight, and required source-coverage completion.
 
-The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, signal-quality gates, allowed buy/sell sides, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion. The view also shows the source confirmation plan and Sentinel checklist used to approve or reject Pulse preparation.
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, signal-quality gates, allowed buy/sell sides, required source-coverage completion, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion. The view also shows the source confirmation plan and Sentinel checklist used to approve or reject Pulse preparation.
 
 The endpoint returns:
 
@@ -176,6 +176,7 @@ The endpoint returns:
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `confirmation_sources`: source-quality plan showing delayed context sources, live confirmation sources, missing adapters, role-level coverage, and recommended next integrations. `min_source_confirmation_weight` can block an intent until enough source coverage is configured.
 - `confirmation_sources.coverage`: `met`, `partial`, or `missing` coverage for dark pool context, price/NBBO confirmation, liquidity/depth confirmation, options confirmation, halt/LULD blockers, and material-news context. Required coverage must be met before the plan is considered complete.
+- `preferences.require_complete_source_coverage`: enabled by default. When true, missing required price, liquidity, halt/LULD, or material-news coverage blocks the intent before Sentinel can approve Pulse packet preparation.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
 - `sentinel.checks`: named pass/fail checklist entries for intent readiness, price confirmation, liquidity confirmation, news check, and spread guard.
 - `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, raw confidence, source-adjusted confidence, confidence breakdown, quality flags, and Sentinel checklist for manual execution review.
@@ -221,7 +222,7 @@ FINRA public OTC/ATS data is delayed and aggregate. It is not an omniscient real
 
 Real-time options flow, GEX, VEX, and live off-lit trade feeds require licensed providers. The app is prepared for those integrations, but demo mode uses deterministic synthetic data.
 
-The source confirmation plan treats FINRA OTC transparency as context only when the active workflow is using FINRA or another configured provider explicitly supplies it. Demo workflows do not claim FINRA context availability. Higher-confidence trade confirmation requires separate coverage for real-time price/NBBO, liquidity/depth, halt/LULD, and material-news sources before the source plan is complete; options-flow confirmation is shown as a strong optional signal. Operators can raise `min_source_confirmation_weight` from `0` to enforce configured source coverage as a hard gate. The dashboard also shows source-adjusted confidence and role-level coverage so an unconfirmed but high-confluence setup is visibly weaker than one backed by live confirmation sources.
+The source confirmation plan treats FINRA OTC transparency as context only when the active workflow is using FINRA or another configured provider explicitly supplies it. Demo workflows do not claim FINRA context availability. Higher-confidence trade confirmation requires separate coverage for real-time price/NBBO, liquidity/depth, halt/LULD, and material-news sources before the source plan is complete; options-flow confirmation is shown as a strong optional signal. By default, `require_source_coverage_complete=true` blocks Pulse preparation until required coverage is complete, even if manual Sentinel checkboxes are ticked. Operators can set it to `false` for demo review or raise `min_source_confirmation_weight` from `0` to enforce configured source coverage as an additional hard gate. The dashboard also shows source-adjusted confidence and role-level coverage so an unconfirmed but high-confluence setup is visibly weaker than one backed by live confirmation sources.
 
 Dark pool prints can identify areas where institutional volume occurred. They do not prove intent. The level engine ranks areas of interest; it does not issue trade entries.
 

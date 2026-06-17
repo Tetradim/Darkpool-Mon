@@ -316,6 +316,7 @@ async def get_darkpool_trade_intent(
     max_quality_caution_flags: int = Query(99, ge=0),
     min_quality_support_flags: int = Query(0, ge=0),
     min_source_confirmation_weight: float = Query(0.0, ge=0),
+    require_source_coverage_complete: bool = Query(True),
     price_confirmed: bool = Query(False),
     liquidity_confirmed: bool = Query(False),
     news_checked: bool = Query(False),
@@ -339,6 +340,7 @@ async def get_darkpool_trade_intent(
         max_quality_caution_flags=max_quality_caution_flags,
         min_quality_support_flags=min_quality_support_flags,
         min_source_confirmation_weight=min_source_confirmation_weight,
+        require_complete_source_coverage=require_source_coverage_complete,
         allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
     )
     confirmation = SentinelConfirmation(

@@ -21,6 +21,7 @@ const TRADE_TOGGLES = [
   ['allowBuy', 'Buy'],
   ['allowSell', 'Sell'],
   ['includePulsePacket', 'Pulse'],
+  ['requireSourceCoverageComplete', 'Source Gate'],
 ];
 
 const CONFIRMATION_TOGGLES = [
@@ -129,7 +130,7 @@ export const TradeIntentView = () => {
             ))}
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {TRADE_TOGGLES.map(([key, label]) => (
               <button
                 key={key}
