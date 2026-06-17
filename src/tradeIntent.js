@@ -38,6 +38,24 @@ const formatPulseStatusReasons = (pulseStatus) => {
   return ` Reasons: ${pulseStatus.reasons.join(' ')}`;
 };
 
+export const formatMissingSourceCoverage = (missingCoverage) => {
+  if (!Array.isArray(missingCoverage) || missingCoverage.length === 0) {
+    return [];
+  }
+  return missingCoverage.map((label) => `Missing ${label}`);
+};
+
+const formatPreparedPulseCoverageWarning = (packet) => {
+  if (packet?.required_source_coverage_complete !== false) {
+    return '';
+  }
+  const missingCoverage = formatMissingSourceCoverage(packet.missing_required_source_coverage);
+  if (missingCoverage.length === 0) {
+    return ' Source coverage incomplete.';
+  }
+  return ` Source coverage incomplete: ${missingCoverage.join('; ')}.`;
+};
+
 export const summarizePulsePacket = (packet, pulseStatus = null) => {
   if (!packet) {
     if (pulseStatus?.message) {
@@ -50,13 +68,15 @@ export const summarizePulsePacket = (packet, pulseStatus = null) => {
     ? `${rawConfidence} raw / ${Number(packet.source_adjusted_confidence).toFixed(1)} source-adjusted`
     : rawConfidence;
   if (packet.risk_plan) {
-    return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence with ${formatIntentMoney(
+    const summary = `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence with ${formatIntentMoney(
       packet.risk_plan.max_risk_dollars
     )} max risk and ${formatIntentMoney(
       packet.risk_plan.position_notional
     )} planned notional; manual execution still required.`;
+    return `${summary}${formatPreparedPulseCoverageWarning(packet)}`;
   }
-  return `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence; manual execution still required.`;
+  const summary = `Pulse packet prepared for ${packet.symbol} ${packet.action} at ${confidence} confidence; manual execution still required.`;
+  return `${summary}${formatPreparedPulseCoverageWarning(packet)}`;
 };
 
 export const formatRiskPlanSummary = (riskPlan) => {
@@ -135,13 +155,6 @@ export const formatSourceCoverage = (coverage) => {
     const label = item.label || item.role || 'Source coverage';
     return `${status}${required} ${label} - ${item.explanation}`;
   });
-};
-
-export const formatMissingSourceCoverage = (missingCoverage) => {
-  if (!Array.isArray(missingCoverage) || missingCoverage.length === 0) {
-    return [];
-  }
-  return missingCoverage.map((label) => `Missing ${label}`);
 };
 
 export const formatSourceAdjustedConfidence = (intent) => {
