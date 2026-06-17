@@ -143,6 +143,17 @@ export const formatConfidenceBreakdown = (breakdown) => {
   );
 };
 
+export const formatQualityFlags = (flags) => {
+  if (!Array.isArray(flags) || flags.length === 0) {
+    return ['No quality flags available.'];
+  }
+  return flags.map((flag) => {
+    const severity = String(flag.severity || 'info').toUpperCase();
+    const source = flag.source || 'signal';
+    return `${severity} ${source} - ${flag.message}`;
+  });
+};
+
 export const formatIntentMoney = (value) => {
   const amount = Number(value || 0);
   if (Math.abs(amount) >= 1_000_000_000) {

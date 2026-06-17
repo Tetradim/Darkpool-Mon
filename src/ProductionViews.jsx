@@ -6,6 +6,7 @@ import {
   formatConfirmationSummary,
   formatConfidenceBreakdown,
   formatIntentMoney,
+  formatQualityFlags,
   formatRiskPlanSummary,
   getIntentTone,
   summarizePulsePacket,
@@ -613,6 +614,17 @@ const TradeIntentView = () => {
                 <div className="text-xs text-gray-500 mb-3">Confidence Breakdown</div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                   {formatConfidenceBreakdown(intent.confidence_breakdown).map((line) => (
+                    <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-dark-700 rounded-lg p-4">
+                <div className="text-xs text-gray-500 mb-3">Signal Quality Flags</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {formatQualityFlags(intent.quality_flags).map((line) => (
                     <div key={line} className="rounded bg-dark-800 px-3 py-2 text-sm text-gray-200">
                       {line}
                     </div>

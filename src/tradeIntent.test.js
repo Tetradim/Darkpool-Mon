@@ -4,6 +4,7 @@ import {
   buildTradeIntentUrl,
   formatConfirmationSummary,
   formatConfidenceBreakdown,
+  formatQualityFlags,
   formatRiskPlanSummary,
   formatIntentMoney,
   getIntentTone,
@@ -122,6 +123,24 @@ describe('formatConfidenceBreakdown', () => {
       'Dark pool level: 50.6/55 - level strength 92.0',
       'Price proximity: 12.0/12 - spot within range',
     ]);
+  });
+});
+
+describe('formatQualityFlags', () => {
+  it('summarizes missing quality flags as unavailable', () => {
+    expect(formatQualityFlags(null)).toEqual(['No quality flags available.']);
+  });
+
+  it('formats severity, source, and message for operator scanning', () => {
+    expect(
+      formatQualityFlags([
+        {
+          severity: 'caution',
+          source: 'options_flow',
+          message: '1 options flow item(s) conflict with BUY',
+        },
+      ])
+    ).toEqual(['CAUTION options_flow - 1 options flow item(s) conflict with BUY']);
   });
 });
 

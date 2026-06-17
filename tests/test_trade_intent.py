@@ -91,6 +91,60 @@ def test_trade_intent_includes_confidence_breakdown_for_operator_readability():
     assert all(component.explanation for component in intent.confidence_breakdown)
 
 
+def test_trade_intent_marks_supporting_conflicting_and_missing_quality_flags():
+    bearish_flow = OptionsFlowSignal(symbol="AAPL", direction="BEARISH", premium=1_200_000, contracts=100)
+    bullish_flow = OptionsFlowSignal(symbol="AAPL", direction="BULLISH", premium=600_000, contracts=50)
+    exposure = ExposureNode(
+        symbol="AAPL",
+        price=180.1,
+        exposure=-750_000,
+        kind="GEX",
+        expires_at=None,
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    intent = build_trade_intent(
+        _score(
+            score=82.0,
+            direction="BULLISH",
+            level=_level(side_bias="SELL"),
+            exposure_nodes=[exposure],
+            options_flow=[bearish_flow, bullish_flow],
+        ),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+    )
+
+    assert any(
+        flag.severity == "caution" and flag.source == "dark_pool" and "level side bias conflicts" in flag.message
+        for flag in intent.quality_flags
+    )
+    assert any(
+        flag.severity == "support" and flag.source == "options_flow" and "1 options flow item(s) support" in flag.message
+        for flag in intent.quality_flags
+    )
+    assert any(
+        flag.severity == "caution" and flag.source == "options_flow" and "1 options flow item(s) conflict" in flag.message
+        for flag in intent.quality_flags
+    )
+    assert any(
+        flag.severity == "caution" and flag.source == "exposure" and "net exposure conflicts" in flag.message
+        for flag in intent.quality_flags
+    )
+
+    missing_intent = build_trade_intent(
+        _score(score=82.0, direction="BULLISH", options_flow=[], exposure_nodes=[]),
+        TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000),
+    )
+    assert any(
+        flag.severity == "missing" and flag.source == "options_flow" and "no directional options flow" in flag.message
+        for flag in missing_intent.quality_flags
+    )
+    assert any(
+        flag.severity == "missing" and flag.source == "exposure" and "no exposure nodes" in flag.message
+        for flag in missing_intent.quality_flags
+    )
+
+
 def test_sentinel_approval_is_required_before_pulse_packet_exists():
     preferences = TradingPreferences(
         min_score=80,
@@ -126,6 +180,7 @@ def test_sentinel_approval_is_required_before_pulse_packet_exists():
     assert packet["risk_plan"]["max_risk_dollars"] == 500.0
     assert packet["risk_plan"]["reward_risk_ratio"] == 2.0
     assert packet["sentinel_confirmation"]["price_confirmed"] is True
+    assert packet["quality_flags"] == [flag.model_dump(mode="json") for flag in intent.quality_flags]
 
 
 def test_sentinel_rejects_ready_intent_without_required_confirmations():
@@ -216,11 +271,13 @@ def test_trade_intent_endpoint_exposes_customizable_gate_and_pulse_packet():
     assert "readable_summary" in body["intent"]
     assert body["intent"]["confidence_breakdown"]
     assert body["intent"]["confidence_breakdown"][0]["name"] == "Dark pool level"
+    assert body["intent"]["quality_flags"]
     if body["sentinel"]["status"] == "approved":
         assert body["pulse_packet"]["destination"] == "pulse"
         assert body["pulse_packet"]["requires_manual_execution"] is True
         assert body["intent"]["risk_plan"]["max_risk_dollars"] == 750.0
         assert body["pulse_packet"]["risk_plan"]["max_position_notional"] == 40000.0
+        assert body["pulse_packet"]["quality_flags"] == body["intent"]["quality_flags"]
         assert body["sentinel"]["confirmation"]["observed_spread_bps"] == 5.0
     else:
         assert body["pulse_packet"] is None

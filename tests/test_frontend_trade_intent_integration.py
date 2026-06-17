@@ -17,3 +17,5 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     assert "'intent'" in app
     assert "TradeIntentView" in production_views
     assert "/darkpool/trade-intent" in production_views
+    assert "formatQualityFlags" in production_views
+    assert "Signal Quality Flags" in production_views

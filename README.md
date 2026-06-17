@@ -16,6 +16,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Alert candidate generation with severity, reasons, score, notional, and deduplication.
 - Trade-intent gate with user-adjustable score, distance, notional, freshness, and risk controls before Sentinel Edge confirmation and Pulse packet preparation.
 - Confidence attribution for trade intents, showing dark pool level strength, price proximity, exposure alignment, options flow, print clustering, and freshness contributions.
+- Signal quality flags for trade intents, showing whether dark pool side bias, options flow, and exposure evidence support, conflict with, or are missing from the candidate action.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
 
 ## Production Posture
@@ -167,9 +168,10 @@ The endpoint returns:
 
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
 - `intent.confidence_breakdown`: component-level score attribution for operator review before confirmation.
+- `intent.quality_flags`: support, caution, and missing-data flags for dark pool side bias, options flow, and exposure evidence.
 - `intent.risk_plan`: a planning envelope with estimated shares, max risk, stop, target, and planned notional. This is not an order.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
-- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent.
+- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, confidence breakdown, and quality flags for manual execution review.
 
 Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld.
 

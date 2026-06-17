@@ -15,6 +15,7 @@ from .models import ConfluenceScore
 TradeAction = Literal["BUY", "SELL", "HOLD"]
 IntentStatus = Literal["blocked", "ready_for_sentinel"]
 DecisionStatus = Literal["approved", "rejected"]
+QualitySeverity = Literal["support", "caution", "missing"]
 
 
 class TradingPreferences(BaseModel):
@@ -51,6 +52,12 @@ class ConfidenceComponent(BaseModel):
     explanation: str
 
 
+class QualityFlag(BaseModel):
+    severity: QualitySeverity
+    source: str
+    message: str
+
+
 class SentinelConfirmation(BaseModel):
     price_confirmed: bool = False
     liquidity_confirmed: bool = False
@@ -75,6 +82,7 @@ class TradeIntent(BaseModel):
     blockers: list[str]
     risk_plan: RiskPlan | None = None
     confidence_breakdown: list[ConfidenceComponent]
+    quality_flags: list[QualityFlag]
 
 
 class SentinelDecision(BaseModel):
@@ -203,6 +211,115 @@ def _build_confidence_breakdown(score: ConfluenceScore) -> list[ConfidenceCompon
     ]
 
 
+def _build_quality_flags(score: ConfluenceScore, action: TradeAction) -> list[QualityFlag]:
+    if action not in {"BUY", "SELL"}:
+        return [
+            QualityFlag(
+                severity="missing",
+                source="direction",
+                message="no directional action to evaluate evidence quality",
+            )
+        ]
+
+    flags: list[QualityFlag] = []
+    level_side = score.level.side_bias
+    supportive_level_side = "BUY" if action == "BUY" else "SELL"
+    opposing_level_side = "SELL" if action == "BUY" else "BUY"
+
+    if level_side == supportive_level_side:
+        flags.append(
+            QualityFlag(
+                severity="support",
+                source="dark_pool",
+                message=f"level side bias supports {action}",
+            )
+        )
+    elif level_side == opposing_level_side:
+        flags.append(
+            QualityFlag(
+                severity="caution",
+                source="dark_pool",
+                message=f"level side bias conflicts with {action}",
+            )
+        )
+    else:
+        flags.append(
+            QualityFlag(
+                severity="missing",
+                source="dark_pool",
+                message="level side bias is neutral",
+            )
+        )
+
+    directional_flows = [flow for flow in score.options_flow if flow.direction in {"BULLISH", "BEARISH"}]
+    supportive_flow_direction = "BULLISH" if action == "BUY" else "BEARISH"
+    opposing_flow_direction = "BEARISH" if action == "BUY" else "BULLISH"
+    supporting_flows = [flow for flow in directional_flows if flow.direction == supportive_flow_direction]
+    opposing_flows = [flow for flow in directional_flows if flow.direction == opposing_flow_direction]
+
+    if not directional_flows:
+        flags.append(
+            QualityFlag(
+                severity="missing",
+                source="options_flow",
+                message="no directional options flow available",
+            )
+        )
+    if supporting_flows:
+        flags.append(
+            QualityFlag(
+                severity="support",
+                source="options_flow",
+                message=f"{len(supporting_flows)} options flow item(s) support {action}",
+            )
+        )
+    if opposing_flows:
+        flags.append(
+            QualityFlag(
+                severity="caution",
+                source="options_flow",
+                message=f"{len(opposing_flows)} options flow item(s) conflict with {action}",
+            )
+        )
+
+    if not score.exposure_nodes:
+        flags.append(
+            QualityFlag(
+                severity="missing",
+                source="exposure",
+                message="no exposure nodes available",
+            )
+        )
+    else:
+        net_exposure = sum(node.exposure for node in score.exposure_nodes)
+        if net_exposure == 0:
+            flags.append(
+                QualityFlag(
+                    severity="missing",
+                    source="exposure",
+                    message="net exposure is neutral",
+                )
+            )
+        elif (action == "BUY" and net_exposure > 0) or (action == "SELL" and net_exposure < 0):
+            flags.append(
+                QualityFlag(
+                    severity="support",
+                    source="exposure",
+                    message=f"net exposure supports {action}",
+                )
+            )
+        else:
+            flags.append(
+                QualityFlag(
+                    severity="caution",
+                    source="exposure",
+                    message=f"net exposure conflicts with {action}",
+                )
+            )
+
+    return flags
+
+
 def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences | None = None) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -229,6 +346,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
 
     risk_plan = _build_risk_plan(score, candidate_action, preferences, blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
+    quality_flags = _build_quality_flags(score, candidate_action)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
     action: TradeAction = "HOLD" if status == "blocked" else candidate_action
     if status == "blocked":
@@ -259,6 +377,7 @@ def build_trade_intent(score: ConfluenceScore, preferences: TradingPreferences |
         blockers=blockers,
         risk_plan=risk_plan,
         confidence_breakdown=confidence_breakdown,
+        quality_flags=quality_flags,
     )
 
 
@@ -331,6 +450,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         "requires_manual_execution": True,
         "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
         "confidence_breakdown": [component.model_dump(mode="json") for component in intent.confidence_breakdown],
+        "quality_flags": [flag.model_dump(mode="json") for flag in intent.quality_flags],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "reasons": intent.reasons,
     }
