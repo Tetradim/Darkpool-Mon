@@ -29,6 +29,15 @@ def test_darkpool_demo_routes_return_structured_payloads():
     assert isinstance(body["scores"], list)
 
 
+def test_darkpool_router_routes_remain_registered():
+    client = TestClient(server.app)
+
+    response = client.get("/darkpool/trade-intent?symbol=AAPL&provider=demo")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["symbol"] == "AAPL"
+
+
 def test_visualization_routes_work_without_external_provider_keys():
     client = TestClient(server.app)
 

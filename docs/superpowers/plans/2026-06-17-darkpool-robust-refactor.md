@@ -754,7 +754,7 @@ git commit -m "refactor: add FastAPI app factory"
 - Modify: `server.py`
 - Test: `tests/test_app_smoke.py`
 
-- [ ] **Step 1: Write route registration test**
+- [x] **Step 1: Write route registration test**
 
 ```python
 def test_darkpool_router_routes_remain_registered():
@@ -766,7 +766,7 @@ def test_darkpool_router_routes_remain_registered():
     assert response.json()["symbol"] == "AAPL"
 ```
 
-- [ ] **Step 2: Run test before moving code**
+- [x] **Step 2: Run test before moving code**
 
 Run:
 
@@ -782,7 +782,7 @@ Expected:
 
 This is a characterization test. It protects the refactor.
 
-- [ ] **Step 3: Create `routes/darkpool_routes.py`**
+- [x] **Step 3: Create `routes/darkpool_routes.py`**
 
 Move these route handlers out of `server.py`:
 
@@ -806,7 +806,7 @@ router = APIRouter()
 
 Imports should come from domain modules, not from `server.py`.
 
-- [ ] **Step 4: Register router in `server.py`**
+- [x] **Step 4: Register router in `server.py`**
 
 ```python
 from routes.darkpool_routes import router as darkpool_router
@@ -814,7 +814,7 @@ from routes.darkpool_routes import router as darkpool_router
 app.include_router(darkpool_router)
 ```
 
-- [ ] **Step 5: Run selected tests**
+- [x] **Step 5: Run selected tests**
 
 Run:
 
@@ -828,7 +828,7 @@ Expected:
 all selected tests passed
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server.py routes/__init__.py routes/darkpool_routes.py tests/test_app_smoke.py

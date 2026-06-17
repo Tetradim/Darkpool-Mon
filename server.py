@@ -14,7 +14,6 @@ from fastapi import FastAPI, Query, HTTPException, Request, WebSocket, WebSocket
 from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
-from darkpool.alerting import build_alert_candidates
 from darkpool.command_service import (
     build_alerts_summary,
     build_confluence_summary,
@@ -24,17 +23,10 @@ from darkpool.command_service import (
 )
 from darkpool.discord_security import DiscordSignatureVerifier, SignatureVerificationError
 from darkpool.discord_formatting import summary_to_embed
-from darkpool.confluence import classify_exposure_nodes, score_confluence
-from darkpool.fixtures import MAG7_STOCKS, generateTransaction, get_stock, sample_exposure_nodes, sample_options_flow
-from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
+from darkpool.fixtures import MAG7_STOCKS, generateTransaction
 from darkpool.providers import ProviderError, fetch_provider_result
-from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.subscriptions import SubscriptionStore
-from darkpool.trade_intent import (
-    SentinelConfirmation,
-    TradingPreferences,
-)
-from darkpool.trade_pipeline import build_trade_intent_report
+from routes.darkpool_routes import router as darkpool_router
 
 load_dotenv()
 
@@ -46,6 +38,7 @@ app = FastAPI(
     description="Backend for real-time darkpool monitoring with FINRA OTC data",
     version="2.0.0",
 )
+app.include_router(darkpool_router)
 
 subscription_store = SubscriptionStore()
 
@@ -432,21 +425,6 @@ PROVIDERS: dict[str, DataProvider] = {
 }
 
 
-def configured_market_providers(active_provider: str) -> list[str]:
-    configured = {active_provider.lower()}
-    for name, provider_obj in PROVIDERS.items():
-        if bool(getattr(provider_obj, "api_key", False)):
-            configured.add(name)
-    return sorted(configured)
-
-
-def get_provider(name: str) -> DataProvider:
-    """Get a provider by name."""
-    if name not in PROVIDERS:
-        raise HTTPException(400, f"Unknown provider: {name}")
-    return PROVIDERS[name]
-
-
 async def get_provider_records(symbol: str | None, provider: str = "demo", limit: int = 500) -> list[dict]:
     """Return provider prints in the legacy weekly-summary shape used by chart routes."""
     try:
@@ -471,25 +449,6 @@ async def get_provider_records(symbol: str | None, provider: str = "demo", limit
 # ============================================================================
 # Models
 # ============================================================================
-
-class OTCAggregateQuery(BaseModel):
-    """OTC Aggregate Query Parameters."""
-
-    symbol: str | None = None
-    tier: Literal["T1", "T2", "OTCE"] = "T1"
-    is_ats: bool = True
-
-
-class OTCAggregateResponse(BaseModel):
-    """OTC Aggregate Response."""
-
-    data: list[dict]
-    provider: str
-    symbol: str | None
-    tier: str
-    is_ats: bool
-    fetched_at: str
-
 
 class Transaction(BaseModel):
     """Individual transaction model."""
@@ -531,263 +490,6 @@ async def list_providers():
         {"name": p.name, "has_api_key": bool(getattr(p, "api_key", False))}
         for p in PROVIDERS.values()
     ]
-
-
-@app.get("/darkpool/otc", response_model=OTCAggregateResponse)
-async def get_otc_aggregate(
-    symbol: str | None = Query(None, description="Stock symbol (e.g., AAPL)"),
-    provider: str = Query("demo", description="Data provider: demo, finra, polygon, intrinio"),
-    tier: Literal["T1", "T2", "OTCE"] = Query(
-        "T1",
-        description="T1=S&P500, T2=NMS, OTCE=OTC equities",
-    ),
-    is_ats: bool = Query(True, description="ATS data if true, Non-ATS otherwise"),
-):
-    """Get weekly OTC/dark pool aggregate data.
-
-    T1: Securities in S&P 500, Russell 1000 and selected ETFs
-    T2: All other NMS stocks
-    OTCE: Over-the-counter equity securities
-    """
-    provider_obj = get_provider(provider)
-
-    try:
-        data = await provider_obj.fetch_otc_data(symbol, tier, is_ats)
-    except Exception as e:
-        raise HTTPException(500, f"Error fetching data: {str(e)}")
-
-    return OTCAggregateResponse(
-        data=data,
-        provider=provider,
-        symbol=symbol,
-        tier=tier,
-        is_ats=is_ats,
-        fetched_at=datetime.utcnow().isoformat(),
-    )
-
-
-@app.get("/darkpool/trades")
-async def get_recent_trades(
-    symbol: str = Query(..., description="Stock symbol"),
-    provider: str = Query("demo", description="Data provider"),
-    limit: int = Query(100, ge=1, le=5000, description="Max results"),
-):
-    """Get recent dark pool trades for a symbol."""
-    provider_obj = get_provider(provider)
-
-    try:
-        data = await provider_obj.fetch_otc_data(symbol, "T1", True)
-    except Exception as e:
-        raise HTTPException(500, f"Error fetching trades: {str(e)}")
-
-    return {
-        "symbol": symbol,
-        "trades": data[:limit],
-        "count": len(data[:limit]),
-    }
-
-
-@app.get("/darkpool/levels")
-async def get_darkpool_levels(
-    symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("demo", description="Data provider: demo or finra"),
-    price_bucket: float = Query(0.10, gt=0, le=5, description="Price clustering bucket"),
-    limit: int = Query(25, ge=1, le=200),
-):
-    """Cluster dark pool prints into support/resistance context levels."""
-    try:
-        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
-    except ProviderError as exc:
-        raise HTTPException(400, str(exc))
-
-    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)[:limit]
-    stock = get_stock(symbol)
-    spot = float(stock.get("basePrice", 100.0))
-    return {
-        "symbol": symbol.upper(),
-        "provider": provider_result.provider,
-        "degraded": provider_result.degraded,
-        "message": provider_result.message,
-        "spot_price": spot,
-        "levels": [level.model_dump(mode="json") for level in levels],
-        "air_pockets": detect_air_pockets(levels, spot),
-        "fetched_at": datetime.utcnow().isoformat(),
-    }
-
-
-@app.get("/darkpool/confluence")
-async def get_darkpool_confluence(
-    symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("demo", description="Data provider: demo or finra"),
-    price_bucket: float = Query(0.10, gt=0, le=5),
-    limit: int = Query(10, ge=1, le=50),
-):
-    """Score dark pool levels against Heatseeker-style exposure context and options flow."""
-    try:
-        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
-    except ProviderError as exc:
-        raise HTTPException(400, str(exc))
-
-    stock = get_stock(symbol)
-    spot = float(stock.get("basePrice", 100.0))
-    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
-    exposure_nodes = sample_exposure_nodes(symbol, spot)
-    options_flow = sample_options_flow(symbol)
-    scores = score_confluence(symbol, spot, levels, exposure_nodes, options_flow)[:limit]
-    node_map = classify_exposure_nodes(symbol, spot, exposure_nodes)
-
-    return {
-        "symbol": symbol.upper(),
-        "provider": provider_result.provider,
-        "degraded": provider_result.degraded,
-        "message": provider_result.message,
-        "spot_price": spot,
-        "node_map": {
-            key: value.model_dump(mode="json") if hasattr(value, "model_dump") else [
-                item.model_dump(mode="json") for item in value
-            ] if isinstance(value, list) else value
-            for key, value in node_map.items()
-        },
-        "scores": [score.model_dump(mode="json") for score in scores],
-        "fetched_at": datetime.utcnow().isoformat(),
-    }
-
-
-@app.get("/darkpool/alert-candidates")
-async def get_darkpool_alert_candidates(
-    symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("demo", description="Data provider: demo or finra"),
-    price_bucket: float = Query(0.10, gt=0, le=5),
-    limit: int = Query(20, ge=1, le=100),
-):
-    """Generate explainable alert candidates without auto-execution."""
-    try:
-        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
-    except ProviderError as exc:
-        raise HTTPException(400, str(exc))
-
-    stock = get_stock(symbol)
-    spot = float(stock.get("basePrice", 100.0))
-    levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
-    scores = score_confluence(symbol, spot, levels, sample_exposure_nodes(symbol, spot), sample_options_flow(symbol))
-    alerts = build_alert_candidates(symbol, levels, scores)[:limit]
-    return {
-        "symbol": symbol.upper(),
-        "provider": provider_result.provider,
-        "degraded": provider_result.degraded,
-        "message": provider_result.message,
-        "alerts": [alert.model_dump(mode="json") for alert in alerts],
-    }
-
-
-@app.get("/darkpool/information-sources")
-async def get_darkpool_information_sources(
-    active_provider: str = Query("demo", description="Active source provider for current workflow"),
-):
-    """Return market information sources and their confirmation roles."""
-    configured_providers = configured_market_providers(active_provider)
-    plan = build_trade_confirmation_plan(active_provider=active_provider, configured_providers=configured_providers)
-    return {
-        "active_provider": active_provider,
-        "catalog": [source.model_dump(mode="json") for source in list_market_information_sources()],
-        "confirmation_plan": plan.model_dump(mode="json"),
-    }
-
-
-@app.get("/darkpool/trade-intent")
-async def get_darkpool_trade_intent(
-    symbol: str = Query("AAPL", description="Stock symbol"),
-    provider: str = Query("demo", description="Data provider: demo or finra"),
-    price_bucket: float = Query(0.10, gt=0, le=5),
-    min_score: float = Query(75.0, ge=0, le=100),
-    max_distance_pct: float = Query(1.0, ge=0, le=10),
-    min_notional: float = Query(25_000_000.0, ge=0),
-    max_freshness_minutes: float = Query(120.0, ge=0),
-    max_risk_dollars: float = Query(500.0, ge=0),
-    stop_distance_pct: float = Query(1.0, ge=0, le=20),
-    reward_risk_ratio: float = Query(2.0, ge=0),
-    max_position_notional: float = Query(50_000.0, ge=0),
-    max_quality_caution_flags: int = Query(99, ge=0),
-    min_quality_support_flags: int = Query(0, ge=0),
-    min_source_confirmation_weight: float = Query(0.0, ge=0),
-    price_confirmed: bool = Query(False),
-    liquidity_confirmed: bool = Query(False),
-    news_checked: bool = Query(False),
-    observed_spread_bps: float = Query(0.0, ge=0),
-    max_spread_bps: float = Query(25.0, ge=0),
-    allow_buy: bool = Query(True),
-    allow_sell: bool = Query(True),
-    include_pulse_packet: bool = Query(False),
-):
-    """Build a user-readable trade intent and gate it through Sentinel Edge."""
-    configured_providers = configured_market_providers(provider)
-    preferences = TradingPreferences(
-        min_score=min_score,
-        max_distance_pct=max_distance_pct,
-        min_notional=min_notional,
-        max_freshness_minutes=max_freshness_minutes,
-        max_risk_dollars=max_risk_dollars,
-        stop_distance_pct=stop_distance_pct,
-        reward_risk_ratio=reward_risk_ratio,
-        max_position_notional=max_position_notional,
-        max_quality_caution_flags=max_quality_caution_flags,
-        min_quality_support_flags=min_quality_support_flags,
-        min_source_confirmation_weight=min_source_confirmation_weight,
-        allowed_actions=[action for action, enabled in [("BUY", allow_buy), ("SELL", allow_sell)] if enabled],
-    )
-    confirmation = SentinelConfirmation(
-        price_confirmed=price_confirmed,
-        liquidity_confirmed=liquidity_confirmed,
-        news_checked=news_checked,
-        observed_spread_bps=observed_spread_bps,
-        max_spread_bps=max_spread_bps,
-    )
-    try:
-        report = await build_trade_intent_report(
-            symbol=symbol,
-            provider=provider,
-            preferences=preferences,
-            confirmation=confirmation,
-            include_pulse_packet=include_pulse_packet,
-            price_bucket=price_bucket,
-            limit=500,
-            configured_providers=configured_providers,
-        )
-    except ProviderError as exc:
-        raise HTTPException(400, str(exc))
-
-    context = report.context
-    provider_result = context.provider_result
-    scores = context.scores
-    confirmation_sources = context.confirmation_plan
-
-    if not scores:
-        return {
-            "symbol": context.symbol,
-            "provider": provider_result.provider,
-            "degraded": provider_result.degraded,
-            "message": provider_result.message,
-            "preferences": preferences.model_dump(mode="json"),
-            "confirmation_sources": confirmation_sources.model_dump(mode="json"),
-            "intent": None,
-            "sentinel": None,
-            "pulse_packet": None,
-            "fetched_at": datetime.utcnow().isoformat(),
-        }
-
-    return {
-        "symbol": context.symbol,
-        "provider": provider_result.provider,
-        "degraded": provider_result.degraded,
-        "message": provider_result.message,
-        "preferences": preferences.model_dump(mode="json"),
-        "confirmation_sources": confirmation_sources.model_dump(mode="json"),
-        "intent": report.intent.model_dump(mode="json") if report.intent else None,
-        "sentinel": report.sentinel.model_dump(mode="json") if report.sentinel else None,
-        "pulse_packet": report.pulse_packet,
-        "source_score": scores[0].model_dump(mode="json"),
-        "fetched_at": datetime.utcnow().isoformat(),
-    }
 
 
 @app.get("/api/full")

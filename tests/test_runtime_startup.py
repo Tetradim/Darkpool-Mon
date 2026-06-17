@@ -5,6 +5,7 @@ import sys
 import time
 
 import httpx
+from fastapi.testclient import TestClient
 
 import server
 
@@ -17,11 +18,13 @@ def _free_port() -> int:
 
 def test_create_app_returns_registered_fastapi_app():
     app = server.create_app()
-    paths = {route.path for route in app.routes}
+    client = TestClient(app)
 
-    assert "/health" in paths
-    assert "/darkpool/trade-intent" in paths
-    assert "/alerts/route" in paths
+    assert client.get("/health").status_code == 200
+    assert client.get("/darkpool/trade-intent?symbol=AAPL&provider=demo").status_code == 200
+    assert client.post(
+        "/alerts/route?symbol=AAPL&alert_type=factory&channel=discord&size=1"
+    ).status_code == 200
 
 
 def test_python_server_registers_late_routes_at_runtime():
