@@ -1,6 +1,8 @@
 // Color Themes Configuration
 // Theme inspired by TradingView, Sentinel Edge, Set Trader
 
+import { OPTION_GREEK_SYMBOLS } from './greekLabels';
+
 export const THEMES = {
   DEFAULT: {
     name: 'Default (TradingView)',
@@ -77,7 +79,7 @@ export const THEMES = {
 // Chart Types
 export const CHART_TYPES = {
   AREA: 'area',
-  BAR: 'bar', 
+  BAR: 'bar',
   LINE: 'line',
   CANDLESTICK: 'candlestick',
 };
@@ -146,18 +148,11 @@ export const DEFAULT_SETTINGS = {
   plotlyUrl: '',
 };
 
-// Greek letters for options/greeks display
-export const GREEK_SYMBOLS = {
-  delta: 'Δ',
-  gamma: 'Γ',
-  theta: 'Θ',
-  vega: 'ν',  // Using nu for vega
-  rho: 'ρ',
-};
+export const GREEK_SYMBOLS = OPTION_GREEK_SYMBOLS;
 
 export const GREEK_NAMES = {
   delta: 'Delta',
-  gamma: 'Gamma', 
+  gamma: 'Gamma',
   theta: 'Theta',
   vega: 'Vega',
   rho: 'Rho',

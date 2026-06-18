@@ -13,9 +13,14 @@ import {
   formatMillionsCurrency,
   formatVolume
 } from './dataGenerator';
+import {
+  clearNewTransactionHighlight,
+  scheduleNewTransactionHighlight,
+} from './dashboardHighlight';
 import { getThemeStyle } from './themes';
 import { summarizeDashboardPulse } from './dashboardPulse';
 import { buildFeedSnapshotCards } from './feedSnapshot';
+import { OPTION_GREEK_FILTERS } from './greekLabels';
 import { computeZScore, rowsToCsv } from './flowEngine';
 import {
   DASHBOARD_CONTROL_DEFAULTS,
@@ -47,13 +52,7 @@ const VIEW_MODE_ICONS = {
   admin: Settings,
   health: AlertTriangle,
 };
-const GREEK_FILTERS = [
-  ['Δ', 'Delta'],
-  ['Γ', 'Gamma'],
-  ['Θ', 'Theta'],
-  ['ν', 'Vega'],
-  ['ρ', 'Rho'],
-];
+const GREEK_FILTERS = OPTION_GREEK_FILTERS;
 
 const exportTransactionsToCsv = (rows) => {
   const csv = rowsToCsv(rows);
@@ -325,6 +324,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const feedRef = useRef(null);
   const lastAlertedTransactionId = useRef(null);
+  const highlightTimeoutRef = useRef(null);
   const dashboardControls = useMemo(() => ({
     selectedStock,
     viewMode,
@@ -403,8 +403,7 @@ export default function App() {
       const stock = getWeightedRandomStock();
       const transaction = generateTransaction(stock);
 
-      setNewTransactionId(transaction.id);
-      setTimeout(() => setNewTransactionId(null), 1000);
+      scheduleNewTransactionHighlight(transaction.id, setNewTransactionId, highlightTimeoutRef);
 
       setTransactions((prev) => [transaction, ...prev].slice(0, 200));
 
@@ -436,7 +435,10 @@ export default function App() {
       });
     }, 1200 + Math.random() * 1100);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearNewTransactionHighlight(highlightTimeoutRef);
+    };
   }, [isRunning]);
 
   useEffect(() => {
@@ -612,6 +614,7 @@ export default function App() {
                 setAlerts([]);
                 setChartData(createInitialChartData(timeframe));
                 setStockPrices(createInitialStockPrices());
+                clearNewTransactionHighlight(highlightTimeoutRef);
                 setNewTransactionId(null);
               }}
               className="p-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white transition-all"
@@ -673,15 +676,16 @@ export default function App() {
 
         {/* Greeks Display */}
         <div className="flex items-center gap-1 ml-2">
-          {GREEK_FILTERS.map(([symbol, name]) => (
+          {GREEK_FILTERS.map(({ key, symbol, name, codePoint }) => (
             <label
-              key={name}
+              key={key}
               className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
-              title={name}
+              title={`${name} (${codePoint})`}
+              aria-label={`${name} option Greek ${codePoint}`}
             >
               <input type="checkbox" className="sr-only" />
               <span
-                className="font-bold text-sm"
+                className="font-mono font-bold text-[13px] leading-none"
                 style={{ color: 'var(--color-accent)' }}
               >
                 {symbol}

@@ -27,13 +27,19 @@ describe('theme helpers', () => {
   });
 
   it('exports clean option Greek symbols for settings help text', () => {
-    expect(themes.GREEK_SYMBOLS).toEqual({
-      delta: 'Δ',
-      gamma: 'Γ',
-      theta: 'Θ',
-      vega: 'ν',
-      rho: 'ρ',
-    });
+    const expectedGreekSymbols = {
+      delta: String.fromCharCode(0x0394),
+      gamma: String.fromCharCode(0x0393),
+      theta: String.fromCharCode(0x0398),
+      vega: String.fromCharCode(0x03bd),
+      rho: String.fromCharCode(0x03c1),
+    };
+    const mojibakeMarker = new RegExp(
+      `[${String.fromCharCode(0x00c2)}${String.fromCharCode(0x00ce)}${String.fromCharCode(0x00cf)}]`
+    );
+
+    expect(themes.GREEK_SYMBOLS).toEqual(expectedGreekSymbols);
+    expect(Object.values(themes.GREEK_SYMBOLS).join('')).not.toMatch(mojibakeMarker);
   });
 
   it('describes provider options with execution status for settings cards', () => {

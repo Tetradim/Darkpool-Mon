@@ -19,6 +19,7 @@ from darkpool.command_service import (
     build_watchlist_summary,
 )
 from darkpool.discord_formatting import summary_to_embed
+from darkpool.providers import ProviderError
 from darkpool.subscriptions import SubscriptionStore
 
 load_dotenv()
@@ -69,40 +70,51 @@ def _discord_embed(summary: CommandSummary) -> discord.Embed:
     return embed
 
 
-async def _send_summary(interaction: discord.Interaction, summary: CommandSummary):
+async def _send_summary(
+    interaction: discord.Interaction,
+    builder,
+    *args,
+    **kwargs,
+):
     await interaction.response.defer()
+    try:
+        summary: CommandSummary = await builder(*args, **kwargs)
+    except ProviderError as exc:
+        await interaction.followup.send(f"Provider error: {exc}", ephemeral=True)
+        return
+
     await interaction.followup.send(embed=_discord_embed(summary))
 
 
 @bot.tree.command()
 async def darkpool(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
     """Get a combined dark pool, confluence, and alert summary."""
-    await _send_summary(interaction, await build_darkpool_summary(symbol, provider=provider))
+    await _send_summary(interaction, build_darkpool_summary, symbol, provider=provider)
 
 
 @bot.tree.command()
 async def levels(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
     """Show clustered dark pool levels for a ticker."""
-    await _send_summary(interaction, await build_levels_summary(symbol, provider=provider))
+    await _send_summary(interaction, build_levels_summary, symbol, provider=provider)
 
 
 @bot.tree.command()
 async def confluence(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
     """Show dark pool, exposure-node, and options-flow confluence."""
-    await _send_summary(interaction, await build_confluence_summary(symbol, provider=provider))
+    await _send_summary(interaction, build_confluence_summary, symbol, provider=provider)
 
 
 @bot.tree.command()
 async def alerts(interaction: discord.Interaction, symbol: str = "AAPL", provider: str = "demo"):
     """Show explainable alert candidates for a ticker."""
-    await _send_summary(interaction, await build_alerts_summary(symbol, provider=provider))
+    await _send_summary(interaction, build_alerts_summary, symbol, provider=provider)
 
 
 @bot.tree.command()
 async def watchlist(interaction: discord.Interaction, symbols: str = "AAPL,NVDA,MSFT", provider: str = "demo"):
     """Show top dark pool candidates for a comma-separated ticker list."""
     parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
-    await _send_summary(interaction, await build_watchlist_summary(parsed, provider=provider))
+    await _send_summary(interaction, build_watchlist_summary, parsed, provider=provider)
 
 
 @bot.tree.command()

@@ -143,6 +143,45 @@ def test_discord_interaction_levels_command_returns_embed(monkeypatch):
     assert body["data"]["embeds"][0]["title"].startswith("AAPL")
 
 
+def test_discord_watchlist_summary_returns_provider_error_as_bad_request():
+    client = TestClient(server.app, raise_server_exceptions=False)
+    response = client.get(
+        "/discord/watchlist-summary",
+        params={"symbols": "AAPL,NVDA", "provider": "polygon"},
+    )
+
+    assert response.status_code == 400
+    assert "not available for execution" in response.json()["detail"]
+
+
+def test_discord_interaction_provider_error_returns_ephemeral_message(monkeypatch):
+    monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
+    client = TestClient(server.app, raise_server_exceptions=False)
+    response = client.post(
+        "/discord/commands",
+        json={
+            "id": "provider-error",
+            "type": 2,
+            "data": {
+                "name": "levels",
+                "options": [
+                    {"name": "symbol", "value": "AAPL"},
+                    {"name": "provider", "value": "polygon"},
+                ],
+            },
+            "member": None,
+            "guild_id": "guild-1",
+            "channel_id": "channel-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["type"] == 4
+    assert body["data"]["flags"] == 64
+    assert "not available for execution" in body["data"]["content"]
+
+
 def test_discord_interaction_subscribe_command_creates_subscription(monkeypatch):
     monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
     client = TestClient(server.app)

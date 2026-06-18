@@ -2669,6 +2669,20 @@ class SlashCommand(BaseModel):
     channel_id: str | None = None
 
 
+DISCORD_EPHEMERAL_FLAG = 64
+
+
+def discord_provider_error_response(exc: ProviderError) -> dict:
+    """Return a Discord interaction response for provider selection failures."""
+    return {
+        "type": 4,
+        "data": {
+            "content": f"Provider error: {exc}",
+            "flags": DISCORD_EPHEMERAL_FLAG,
+        },
+    }
+
+
 @app.get("/discord/watchlist-summary")
 async def get_discord_watchlist_summary(
     symbols: str = Query(..., description="Comma-separated tickers"),
@@ -2676,7 +2690,10 @@ async def get_discord_watchlist_summary(
 ):
     """Build the same watchlist summary used by Discord commands."""
     parsed = [symbol.strip() for symbol in symbols.split(",") if symbol.strip()]
-    summary = await build_watchlist_summary(parsed, provider=provider)
+    try:
+        summary = await build_watchlist_summary(parsed, provider=provider)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
     return {
         "summary": {
             "command": summary.command,
@@ -2754,12 +2771,18 @@ async def handle_slash_command(request: Request):
     }
 
     if cmd_name in builders:
-        summary = await builders[cmd_name](symbol, provider=provider)
+        try:
+            summary = await builders[cmd_name](symbol, provider=provider)
+        except ProviderError as exc:
+            return discord_provider_error_response(exc)
         return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
 
     if cmd_name == "watchlist":
         symbols = options.get("symbols", "AAPL,NVDA,MSFT")
-        summary = await build_watchlist_summary([item.strip() for item in symbols.split(",")], provider=provider)
+        try:
+            summary = await build_watchlist_summary([item.strip() for item in symbols.split(",")], provider=provider)
+        except ProviderError as exc:
+            return discord_provider_error_response(exc)
         return {"type": 4, "data": {"embeds": [summary_to_embed(summary)]}}
 
     if cmd_name == "subscribe":
