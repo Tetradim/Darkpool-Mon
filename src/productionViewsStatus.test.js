@@ -13,4 +13,17 @@ describe('Production view request status wiring', () => {
     expect(healthViewSource).toContain("label: 'System Health'");
     expect(healthViewSource).toContain('<RequestStatusBanner status={healthStatus} onRetry={fetchHealth} />');
   });
+
+  it('wires route delivery filters into the Alerts workspace', () => {
+    const alertsViewSource = source.slice(
+      source.indexOf('const AlertsView = () => {'),
+      source.indexOf('// Watchlist Component')
+    );
+
+    expect(alertsViewSource).toContain('const [routeStatusFilter, setRouteStatusFilter]');
+    expect(alertsViewSource).toContain('routeStatus: routeStatusFilter');
+    expect(alertsViewSource).toContain('triageSummary.sentRoutes');
+    expect(alertsViewSource).toContain('ALERT_ROUTE_FILTERS.map');
+    expect(alertsViewSource).toContain('Clear Filters');
+  });
 });

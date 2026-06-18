@@ -1,7 +1,13 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircle, PauseCircle, MessageSquare, Zap, Plus, X } from 'lucide-react';
 import { TradeIntentView } from './TradeIntentView';
-import { ALERT_SEVERITY_FILTERS, ALERT_STATE_FILTERS, filterAlerts, summarizeAlertTriage } from './alertFilters';
+import {
+  ALERT_ROUTE_FILTERS,
+  ALERT_SEVERITY_FILTERS,
+  ALERT_STATE_FILTERS,
+  filterAlerts,
+  summarizeAlertTriage,
+} from './alertFilters';
 import { filterDataSources, summarizeDataSources, summarizeHealthStatus } from './healthStatus';
 import { DEFAULT_UNUSUAL_ZSCORE, SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
 import {
@@ -243,6 +249,7 @@ const AlertsView = () => {
   const [requestError, setRequestError] = useState(null);
   const [stateFilter, setStateFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
+  const [routeStatusFilter, setRouteStatusFilter] = useState('all');
   const [alertQuery, setAlertQuery] = useState('');
   const [actionableOnly, setActionableOnly] = useState(false);
 
@@ -289,12 +296,20 @@ const AlertsView = () => {
     () => filterAlerts(alerts, {
       state: stateFilter,
       severity: severityFilter,
+      routeStatus: routeStatusFilter,
       query: alertQuery,
       actionableOnly,
     }),
-    [alerts, stateFilter, severityFilter, alertQuery, actionableOnly]
+    [alerts, stateFilter, severityFilter, routeStatusFilter, alertQuery, actionableOnly]
   );
   const triageSummary = useMemo(() => summarizeAlertTriage(alerts), [alerts]);
+  const hasActiveAlertFilters = (
+    stateFilter !== 'all' ||
+    severityFilter !== 'all' ||
+    routeStatusFilter !== 'all' ||
+    alertQuery.trim() ||
+    actionableOnly
+  );
   const alertStatus = summarizeRequestStatus({
     label: 'Alerts',
     loading,
@@ -316,19 +331,41 @@ const AlertsView = () => {
     critical: 'bg-red-500',
   };
 
+  const clearAlertFilters = () => {
+    setStateFilter('all');
+    setSeverityFilter('all');
+    setRouteStatusFilter('all');
+    setAlertQuery('');
+    setActionableOnly(false);
+  };
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         {[
           ['Needs Action', triageSummary.actionable, triageSummary.tone === 'urgent' ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'],
           ['Critical Open', triageSummary.criticalOpen, 'border-red-500/30 bg-red-500/10 text-red-200'],
+          ['Sent Routes', triageSummary.sentRoutes, 'border-green-500/30 bg-green-500/10 text-green-200'],
           ['Route Failures', triageSummary.failedRoutes, 'border-orange-500/30 bg-orange-500/10 text-orange-200'],
-          ['Snoozed', triageSummary.snoozed, 'border-gray-500/30 bg-gray-500/10 text-gray-200'],
+          ['Pending', triageSummary.pendingRoutes, 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'],
+          ['Deduped', triageSummary.dedupedRoutes, 'border-gray-500/30 bg-gray-500/10 text-gray-200'],
         ].map(([label, value, toneClass]) => (
-          <div key={label} className={`rounded-xl border p-4 ${toneClass}`}>
+          <button
+            key={label}
+            type="button"
+            onClick={() => {
+              if (label === 'Needs Action') setActionableOnly(true);
+              if (label === 'Critical Open') setSeverityFilter('critical');
+              if (label === 'Sent Routes') setRouteStatusFilter('sent');
+              if (label === 'Route Failures') setRouteStatusFilter('failed');
+              if (label === 'Pending') setRouteStatusFilter('pending');
+              if (label === 'Deduped') setRouteStatusFilter('deduped');
+            }}
+            className={`rounded-xl border p-4 text-left transition-all hover:border-white/20 ${toneClass}`}
+          >
             <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
             <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -384,6 +421,23 @@ const AlertsView = () => {
             ))}
           </div>
 
+          <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
+            {ALERT_ROUTE_FILTERS.map((routeStatus) => (
+              <button
+                key={routeStatus}
+                type="button"
+                onClick={() => setRouteStatusFilter(routeStatus)}
+                className={`rounded px-2.5 py-1 text-xs font-medium capitalize transition-all ${
+                  routeStatusFilter === routeStatus
+                    ? 'bg-dark-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {routeStatus}
+              </button>
+            ))}
+          </div>
+
           <label className="flex items-center gap-2 rounded-lg bg-dark-900/70 px-2.5 py-1.5 text-sm text-gray-300">
             <input
               type="checkbox"
@@ -394,6 +448,16 @@ const AlertsView = () => {
             />
             <span>Needs action</span>
           </label>
+
+          {hasActiveAlertFilters && (
+            <button
+              type="button"
+              onClick={clearAlertFilters}
+              className="rounded-lg bg-dark-900/70 px-3 py-1.5 text-sm text-gray-300 hover:bg-dark-700 hover:text-white"
+            >
+              Clear Filters
+            </button>
+          )}
         </div>
       </div>
 
