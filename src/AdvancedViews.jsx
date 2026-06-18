@@ -40,6 +40,38 @@ const FlowMapView = () => {
     [heatmap, symbolQuery, minScore]
   );
   const heatmapSummary = useMemo(() => summarizeHeatmapCells(visibleHeatmap), [visibleHeatmap]);
+  const hasActiveHeatmapFilters = Boolean(symbolQuery.trim() || minScore > 0);
+  const heatmapSummaryCards = [
+    {
+      label: 'Symbols',
+      value: heatmapSummary.activeSymbols,
+      detail: `${visibleHeatmap.length}/${heatmap.length} cells`,
+    },
+    {
+      label: 'Hotspots',
+      value: heatmapSummary.hotspotCount,
+      detail: 'Score >= 70',
+      onClick: () => setMinScore(70),
+    },
+    {
+      label: 'Volume',
+      value: `${(heatmapSummary.totalVolume / 1000000).toFixed(1)}M`,
+      detail: 'Filtered flow',
+    },
+    {
+      label: 'Top Flow',
+      value: heatmapSummary.topSymbol.symbol,
+      detail: `score ${heatmapSummary.topSymbol.score}`,
+      onClick: heatmapSummary.topSymbol.symbol !== 'N/A'
+        ? () => setSymbolQuery(heatmapSummary.topSymbol.symbol)
+        : undefined,
+    },
+  ];
+
+  const clearHeatmapFilters = () => {
+    setSymbolQuery('');
+    setMinScore(0);
+  };
 
   // Group by symbol for grid
   const symbols = useMemo(() => {
@@ -96,24 +128,30 @@ const FlowMapView = () => {
         <button onClick={fetchHeatmap} className="px-3 py-1 bg-dark-700 rounded text-sm hover:bg-dark-600">
           Refresh
         </button>
+        {hasActiveHeatmapFilters && (
+          <button
+            type="button"
+            onClick={clearHeatmapFilters}
+            className="rounded-lg bg-dark-900/70 px-3 py-1.5 text-sm text-gray-300 hover:bg-dark-700 hover:text-white"
+          >
+            Clear Filters
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ['Symbols', heatmapSummary.activeSymbols],
-          ['Hotspots', heatmapSummary.hotspotCount],
-          ['Volume', `${(heatmapSummary.totalVolume / 1000000).toFixed(1)}M`],
-          ['Top Flow', heatmapSummary.topSymbol.symbol],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-orange-200">
+        {heatmapSummaryCards.map(({ label, value, detail, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!onClick}
+            onClick={onClick}
+            className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-left text-orange-200 transition-all enabled:hover:border-orange-300/40 enabled:hover:bg-orange-500/15 disabled:cursor-default"
+          >
             <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
-            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
-            {label === 'Top Flow' && (
-              <div className="mt-1 text-xs text-current/70">
-                score {heatmapSummary.topSymbol.score}
-              </div>
-            )}
-          </div>
+            <div className="mt-2 truncate font-mono text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 truncate text-xs text-current/70">{detail}</div>
+          </button>
         ))}
       </div>
 
