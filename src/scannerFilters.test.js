@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
+import { SCANNER_SIDE_FILTERS, filterScannerPrints, summarizeScannerPrints } from './scannerFilters';
 
 describe('filterScannerPrints', () => {
   const prints = [
@@ -52,5 +52,35 @@ describe('filterScannerPrints', () => {
       { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
       { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
     ]);
+  });
+
+  it('summarizes scanner pressure for operator status cards', () => {
+    expect(summarizeScannerPrints([
+      { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
+      { symbol: 'AAPL', side: 'SELL', confidence: 0.91, z_score: -1.2 },
+      { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
+      { symbol: 'NVDA', side: 'BUY', confidence: 0.72, z_score: 1.8 },
+      { symbol: 'TSLA', side: 'SELL' },
+    ], { minAbsZScore: 2, highConfidence: 0.9 })).toEqual({
+      total: 5,
+      buyCount: 2,
+      sellCount: 3,
+      unusualCount: 2,
+      highConfidenceCount: 2,
+      topSymbol: { symbol: 'AAPL', printCount: 2 },
+      pressure: 'sell',
+    });
+  });
+
+  it('returns stable empty scanner summary values', () => {
+    expect(summarizeScannerPrints([])).toEqual({
+      total: 0,
+      buyCount: 0,
+      sellCount: 0,
+      unusualCount: 0,
+      highConfidenceCount: 0,
+      topSymbol: { symbol: 'N/A', printCount: 0 },
+      pressure: 'neutral',
+    });
   });
 });

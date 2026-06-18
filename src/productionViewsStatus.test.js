@@ -37,4 +37,15 @@ describe('Production view request status wiring', () => {
     expect(watchlistViewSource).toContain('watchlistSummary.overlapSymbolCount');
     expect(watchlistViewSource).toContain('setWatchlistQuery(watchlistSummary.mostRepeatedSymbol.symbol)');
   });
+
+  it('wires scanner pressure summaries into the Scanner workspace', () => {
+    const scannerViewSource = source.slice(
+      source.indexOf('const ScannerView = () => {'),
+      source.indexOf('// Alert Log Component')
+    );
+
+    expect(scannerViewSource).toContain('summarizeScannerPrints(prints');
+    expect(scannerViewSource).toContain('scannerSummary.unusualCount');
+    expect(scannerViewSource).toContain('setSymbolQuery(scannerSummary.topSymbol.symbol)');
+  });
 });

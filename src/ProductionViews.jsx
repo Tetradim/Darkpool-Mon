@@ -9,7 +9,12 @@ import {
   summarizeAlertTriage,
 } from './alertFilters';
 import { filterDataSources, summarizeDataSources, summarizeHealthStatus } from './healthStatus';
-import { DEFAULT_UNUSUAL_ZSCORE, SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
+import {
+  DEFAULT_UNUSUAL_ZSCORE,
+  SCANNER_SIDE_FILTERS,
+  filterScannerPrints,
+  summarizeScannerPrints,
+} from './scannerFilters';
 import {
   buildWatchlistCreateUrl,
   filterWatchlists,
@@ -92,15 +97,72 @@ const ScannerView = () => {
     }),
     [prints, sideFilter, minConfidence, symbolQuery, unusualOnly]
   );
+  const scannerSummary = useMemo(
+    () => summarizeScannerPrints(prints, { minAbsZScore: DEFAULT_UNUSUAL_ZSCORE }),
+    [prints]
+  );
   const scannerStatus = summarizeRequestStatus({
     label: 'Scanner',
     loading,
     error: requestError,
     itemCount: prints.length,
   });
+  const scannerSummaryCards = [
+    {
+      label: 'Prints',
+      value: scannerSummary.total,
+      detail: `${visiblePrints.length} visible`,
+    },
+    {
+      label: 'Pressure',
+      value: scannerSummary.pressure.toUpperCase(),
+      detail: `${scannerSummary.buyCount} buy / ${scannerSummary.sellCount} sell`,
+      onClick: scannerSummary.pressure === 'buy'
+        ? () => setSideFilter('BUY')
+        : scannerSummary.pressure === 'sell'
+          ? () => setSideFilter('SELL')
+          : undefined,
+    },
+    {
+      label: 'Unusual',
+      value: scannerSummary.unusualCount,
+      detail: `|Z| >= ${DEFAULT_UNUSUAL_ZSCORE}`,
+      onClick: () => setUnusualOnly(true),
+    },
+    {
+      label: 'High Conf.',
+      value: scannerSummary.highConfidenceCount,
+      detail: '>= 90% confidence',
+      onClick: () => setMinConfidence(0.9),
+    },
+    {
+      label: 'Top Symbol',
+      value: scannerSummary.topSymbol.symbol,
+      detail: `${scannerSummary.topSymbol.printCount} print${scannerSummary.topSymbol.printCount === 1 ? '' : 's'}`,
+      onClick: scannerSummary.topSymbol.symbol !== 'N/A'
+        ? () => setSymbolQuery(scannerSummary.topSymbol.symbol)
+        : undefined,
+    },
+  ];
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {scannerSummaryCards.map(({ label, value, detail, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!onClick}
+            onClick={onClick}
+            className="rounded-xl border border-dark-600 bg-dark-800 p-4 text-left transition-all enabled:hover:border-accent-cyan/50 enabled:hover:bg-dark-700 disabled:cursor-default"
+          >
+            <div className="text-xs font-semibold uppercase text-gray-500">{label}</div>
+            <div className="mt-2 truncate font-mono text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 truncate text-xs text-gray-500">{detail}</div>
+          </button>
+        ))}
+      </div>
+
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3 bg-dark-800 rounded-xl p-4">
         <div className="flex items-center gap-2">
