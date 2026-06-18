@@ -18,9 +18,8 @@ import {
 import { THEMES, CHART_TYPES, LAYOUTS, CARD_SIZES, PROVIDER_OPTIONS, GREEK_SYMBOLS } from './themes';
 import {
   buildSettingsProfileFilename,
+  buildSettingsProfileImportState,
   normalizePersistedSettings,
-  parseSettingsProfile,
-  previewSettingsProfile,
   serializeSettingsProfile,
   summarizeSettingsProfile,
 } from './settingsPersistence';
@@ -30,10 +29,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
   const [exportText, setExportText] = useState('');
   const [importText, setImportText] = useState('');
   const [profileMessage, setProfileMessage] = useState(null);
-  const importPreview = useMemo(() => {
-    const trimmed = importText.trim();
-    return trimmed ? previewSettingsProfile(trimmed) : null;
-  }, [importText]);
+  const importState = useMemo(() => buildSettingsProfileImportState(importText), [importText]);
+  const importPreview = importState.preview;
 
   if (!isOpen) return null;
 
@@ -77,13 +74,12 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
   };
 
   const importProfile = () => {
-    const result = parseSettingsProfile(importText);
-    if (!result.ok) {
-      updateProfileMessage('error', result.error);
+    if (!importState.canApply) {
+      updateProfileMessage('error', importPreview?.error || 'Paste a valid profile JSON before applying.');
       return;
     }
 
-    onSettingsChange(result.settings);
+    onSettingsChange(importPreview.settings);
     updateProfileMessage('success', 'Profile imported into the active dashboard.');
   };
 
@@ -231,7 +227,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
                 <button
                   type="button"
                   onClick={importProfile}
-                  className="flex items-center gap-2 rounded-lg bg-accent-cyan/20 px-3 py-2 text-sm text-accent-cyan hover:bg-accent-cyan/30"
+                  disabled={!importState.canApply}
+                  className="flex items-center gap-2 rounded-lg bg-accent-cyan/20 px-3 py-2 text-sm text-accent-cyan hover:bg-accent-cyan/30 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ color: 'var(--color-accent)' }}
                 >
                   <Upload size={16} />

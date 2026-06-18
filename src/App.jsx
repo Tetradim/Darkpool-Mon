@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useEffect, useRef, useMemo } from 'react';
+import { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import {
   Activity, TrendingUp, TrendingDown, Pause, Play, Filter,
   DollarSign, Clock, BarChart3, PieChart, Zap, RefreshCw, Bell,
@@ -17,24 +17,13 @@ import { getThemeStyle } from './themes';
 import { summarizeDashboardPulse } from './dashboardPulse';
 import { computeZScore, rowsToCsv } from './flowEngine';
 import { extractDashboardControls, mergeDashboardControls, normalizePersistedSettings } from './settingsPersistence';
+import {
+  SettingsModal,
+  StockSparkline,
+  TransactionVolumeChart,
+  getWorkspaceViewComponent,
+} from './lazyViews';
 import { VIEW_MODES } from './viewModes';
-
-const lazyNamed = (loader, exportName) => lazy(() => (
-  loader().then((module) => ({ default: module[exportName] }))
-));
-
-const SettingsModal = lazy(() => import('./SettingsModal'));
-const OptionsDashboard = lazy(() => import('./OptionsDashboard'));
-const TradeIntentView = lazyNamed(() => import('./TradeIntentView'), 'TradeIntentView');
-const ScannerView = lazyNamed(() => import('./ProductionViews'), 'ScannerView');
-const AlertsView = lazyNamed(() => import('./ProductionViews'), 'AlertsView');
-const WatchlistView = lazyNamed(() => import('./ProductionViews'), 'WatchlistView');
-const HealthView = lazyNamed(() => import('./ProductionViews'), 'HealthView');
-const FlowMapView = lazyNamed(() => import('./AdvancedViews'), 'FlowMapView');
-const ReplayView = lazyNamed(() => import('./AdvancedViews'), 'ReplayView');
-const AdminView = lazyNamed(() => import('./AdvancedViews'), 'AdminView');
-const StockSparkline = lazyNamed(() => import('./DashboardCharts'), 'StockSparkline');
-const TransactionVolumeChart = lazyNamed(() => import('./DashboardCharts'), 'TransactionVolumeChart');
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
@@ -482,6 +471,7 @@ export default function App() {
       buy: point.buyVolume,
       sell: point.sellVolume,
     })) || [];
+  const WorkspaceView = getWorkspaceViewComponent(viewMode);
 
   return (
     <div className="min-h-screen p-4 lg:p-6" style={appThemeStyle}>
@@ -692,27 +682,9 @@ export default function App() {
       )}
 
       {/* Main Content Based on View Mode */}
-      {viewMode !== 'dashboard' ? (
+      {WorkspaceView ? (
         <Suspense fallback={<ViewFallback />}>
-          {viewMode === 'options' ? (
-            <OptionsDashboard settings={currentSettings} />
-          ) : viewMode === 'intent' ? (
-            <TradeIntentView />
-          ) : viewMode === 'scanner' ? (
-            <ScannerView />
-          ) : viewMode === 'alerts' ? (
-            <AlertsView />
-          ) : viewMode === 'watchlist' ? (
-            <WatchlistView />
-          ) : viewMode === 'health' ? (
-            <HealthView />
-          ) : viewMode === 'flowmap' ? (
-            <FlowMapView />
-          ) : viewMode === 'replay' ? (
-            <ReplayView />
-          ) : viewMode === 'admin' ? (
-            <AdminView />
-          ) : null}
+          <WorkspaceView {...(viewMode === 'options' ? { settings: currentSettings } : {})} />
         </Suspense>
       ) : (
         <>

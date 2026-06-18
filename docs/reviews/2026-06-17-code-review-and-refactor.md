@@ -6,7 +6,7 @@
 - Discord behavior was duplicated between `discord_bot.py` and `/discord/commands`. This is now routed through shared command-summary and formatting services.
 - Bot functionality lagged comparable Discord market bots. Missing features included specific slash commands for levels, confluence, alerts, watchlist summaries, and channel subscriptions.
 - Provider and demo behavior is testable, but persistent storage is still in-memory. Production deployments need database-backed users, watchlists, subscriptions, alert state, and audit logs.
-- Frontend builds and tests pass, but the Vite bundle is still large. Code splitting advanced views is the next frontend refactor.
+- Frontend builds and tests pass. The old Vite chunk warning has been addressed with lazy workspace views and manual vendor chunks; continue watching chart vendor size as chart features expand.
 
 ## Refactor Implemented
 
@@ -16,6 +16,7 @@
 - Refactored Discord commands to use shared services.
 - Added matching FastAPI routes for watchlist summaries and subscription management.
 - Extended tests to cover Discord bot imports, backend Discord interactions, command summary generation, embed payloads, and subscription behavior.
+- Added route-level frontend code splitting and explicit chart/icon/React vendor chunks.
 
 ## Research Takeaways
 
@@ -30,4 +31,4 @@
 - Replace in-memory auth/watchlists/subscriptions with a database repository.
 - Add a scheduler that evaluates subscriptions and posts alert candidates to Discord webhooks.
 - Add a live provider adapter for licensed options-flow/GEX data.
-- Add frontend route-level code splitting.
+- Keep frontend chunks below Vite's warning threshold as new charting or workspace modules are added.

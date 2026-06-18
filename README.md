@@ -219,7 +219,7 @@ Run dependency audit:
 npm audit --audit-level=moderate
 ```
 
-Current known frontend build note: Vite reports a chunk-size warning because the dashboard and all advanced views are bundled together. This is not a failure. Code splitting is the next performance improvement.
+Frontend build note: the production build uses lazy workspace views plus manual vendor chunks for chart, icon, and React dependencies, so Vite should not emit the old large-chunk warning during normal builds.
 
 ## Data and Interpretation Limits
 

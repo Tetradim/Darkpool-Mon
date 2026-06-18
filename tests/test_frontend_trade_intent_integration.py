@@ -11,12 +11,16 @@ def test_vite_dev_server_proxies_backend_api_routes():
 
 def test_trade_intent_view_is_reachable_from_app_navigation():
     app = Path("src/App.jsx").read_text(encoding="utf-8")
+    lazy_views = Path("src/lazyViews.jsx").read_text(encoding="utf-8")
+    view_modes = Path("src/viewModes.js").read_text(encoding="utf-8")
     trade_intent_view = Path("src/TradeIntentView.jsx").read_text(encoding="utf-8")
     trade_intent_summary = Path("src/TradeIntentSummary.jsx").read_text(encoding="utf-8")
 
-    assert "TradeIntentView" in app
-    assert "import('./TradeIntentView')" in app
-    assert "'intent'" in app
+    assert "getWorkspaceViewComponent" in app
+    assert "TradeIntentView" in lazy_views
+    assert "import('./TradeIntentView')" in lazy_views
+    assert "intent:" in lazy_views
+    assert "'intent'" in view_modes
     assert "buildTradeIntentUrl" in trade_intent_view
     assert "Max Caution Flags" in trade_intent_view
     assert "Min Support Flags" in trade_intent_view

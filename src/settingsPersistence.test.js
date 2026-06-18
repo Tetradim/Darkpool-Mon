@@ -8,6 +8,7 @@ import {
   normalizePersistedSettings,
   parseSettingsProfile,
   previewSettingsProfile,
+  buildSettingsProfileImportState,
   serializeSettingsProfile,
   summarizeSettingsProfile,
 } from './settingsPersistence';
@@ -186,6 +187,39 @@ describe('settings persistence helpers', () => {
     expect(previewSettingsProfile('{bad-json')).toEqual({
       ok: false,
       error: 'Profile JSON could not be parsed.',
+    });
+  });
+
+  it('marks blank profile imports as not ready to apply', () => {
+    expect(buildSettingsProfileImportState('   ')).toEqual({
+      canApply: false,
+      preview: null,
+    });
+  });
+
+  it('marks invalid profile imports as not ready to apply', () => {
+    expect(buildSettingsProfileImportState('{bad-json')).toEqual({
+      canApply: false,
+      preview: {
+        ok: false,
+        error: 'Profile JSON could not be parsed.',
+      },
+    });
+  });
+
+  it('marks valid profile imports as ready to apply', () => {
+    const state = buildSettingsProfileImportState(JSON.stringify({
+      settings: {
+        theme: 'MATRIX',
+        viewMode: 'health',
+      },
+    }));
+
+    expect(state.canApply).toBe(true);
+    expect(state.preview.ok).toBe(true);
+    expect(state.preview.settings).toMatchObject({
+      theme: 'MATRIX',
+      viewMode: 'health',
     });
   });
 

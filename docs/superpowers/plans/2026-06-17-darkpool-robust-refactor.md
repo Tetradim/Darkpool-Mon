@@ -1340,7 +1340,7 @@ Expected:
 build exits 0
 ```
 
-The existing large chunk warning is acceptable until the frontend split is complete.
+The frontend split is complete: workspace views load lazily and chart/icon/React dependencies are assigned to explicit vendor chunks.
 
 - [x] **Step 4: Run diff hygiene**
 

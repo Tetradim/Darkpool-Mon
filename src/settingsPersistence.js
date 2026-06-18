@@ -102,6 +102,22 @@ export const previewSettingsProfile = (profileJson) => {
   };
 };
 
+export const buildSettingsProfileImportState = (profileJson) => {
+  const trimmed = String(profileJson || '').trim();
+  if (!trimmed) {
+    return {
+      canApply: false,
+      preview: null,
+    };
+  }
+
+  const preview = previewSettingsProfile(trimmed);
+  return {
+    canApply: preview.ok,
+    preview,
+  };
+};
+
 const filenamePart = (value, fallback) => {
   const part = String(value || fallback)
     .trim()
