@@ -12,11 +12,42 @@ import {
   summarizeWatchlists,
   validateWatchlistDraft,
 } from './watchlistBuilder';
+import { buildRequestFailure, summarizeRequestStatus } from './requestStatus';
+
+const RequestStatusBanner = ({ status, onRetry }) => {
+  if (!status) return null;
+
+  const toneClass = status.tone === 'warning'
+    ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'
+    : 'border-red-500/30 bg-red-500/10 text-red-200';
+
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${toneClass}`}>
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+        <div>
+          <div className="text-sm font-semibold text-white">{status.title}</div>
+          <p className="mt-1 text-sm leading-5 text-current/80">{status.detail}</p>
+        </div>
+      </div>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-lg bg-dark-900/60 px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-dark-800"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+};
 
 // Scanner Table Component
 const ScannerView = () => {
   const [prints, setPrints] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState(null);
   const [sortBy, setSortBy] = useState('size');
   const [minSize, setMinSize] = useState(1000);
   const [sideFilter, setSideFilter] = useState('ALL');
@@ -28,9 +59,12 @@ const ScannerView = () => {
     setLoading(true);
     try {
       const res = await fetch(`/scanner/prints?min_size=${minSize}&sort_by=${sortBy}&limit=50`);
+      if (!res.ok) throw res;
       const data = await res.json();
       setPrints(data.scanner || []);
+      setRequestError(null);
     } catch (err) {
+      setRequestError(buildRequestFailure('Scanner', err));
       console.error('Failed to fetch prints:', err);
     }
     setLoading(false);
@@ -52,6 +86,12 @@ const ScannerView = () => {
     }),
     [prints, sideFilter, minConfidence, symbolQuery, unusualOnly]
   );
+  const scannerStatus = summarizeRequestStatus({
+    label: 'Scanner',
+    loading,
+    error: requestError,
+    itemCount: prints.length,
+  });
 
   return (
     <div className="space-y-4">
@@ -141,6 +181,8 @@ const ScannerView = () => {
         </button>
       </div>
 
+      <RequestStatusBanner status={scannerStatus} onRetry={fetchPrints} />
+
       {/* Scanner Table */}
       <div className="bg-dark-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
@@ -198,6 +240,7 @@ const ScannerView = () => {
 const AlertsView = () => {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState(null);
   const [stateFilter, setStateFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
   const [alertQuery, setAlertQuery] = useState('');
@@ -207,9 +250,12 @@ const AlertsView = () => {
     setLoading(true);
     try {
       const res = await fetch('/alerts/trigger-log?limit=50');
+      if (!res.ok) throw res;
       const data = await res.json();
       setAlerts(data.alerts || []);
+      setRequestError(null);
     } catch (err) {
+      setRequestError(buildRequestFailure('Alerts', err));
       console.error('Failed to fetch alerts:', err);
     }
     setLoading(false);
@@ -249,6 +295,12 @@ const AlertsView = () => {
     [alerts, stateFilter, severityFilter, alertQuery, actionableOnly]
   );
   const triageSummary = useMemo(() => summarizeAlertTriage(alerts), [alerts]);
+  const alertStatus = summarizeRequestStatus({
+    label: 'Alerts',
+    loading,
+    error: requestError,
+    itemCount: alerts.length,
+  });
 
   const stateIcons = {
     new: <AlertTriangle size={14} className="text-yellow-400" />,
@@ -345,6 +397,8 @@ const AlertsView = () => {
         </div>
       </div>
 
+      <RequestStatusBanner status={alertStatus} onRetry={fetchAlerts} />
+
       <div className="space-y-2">
         {loading ? (
           <div className="bg-dark-800 rounded-xl p-8 text-center text-gray-500">Loading...</div>
@@ -410,6 +464,7 @@ const AlertsView = () => {
 const WatchlistView = () => {
   const [watchlists, setWatchlists] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftSymbols, setDraftSymbols] = useState('');
@@ -425,18 +480,22 @@ const WatchlistView = () => {
   );
   const watchlistSummary = useMemo(() => summarizeWatchlists(watchlists), [watchlists]);
 
+  const fetchWatchlists = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/watchlists');
+      if (!res.ok) throw res;
+      const data = await res.json();
+      setWatchlists(data.watchlists || []);
+      setRequestError(null);
+    } catch (err) {
+      setRequestError(buildRequestFailure('Watchlists', err));
+      console.error('Failed to fetch watchlists:', err);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchWatchlists = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch('/watchlists');
-        const data = await res.json();
-        setWatchlists(data.watchlists || []);
-      } catch (err) {
-        console.error('Failed to fetch watchlists:', err);
-      }
-      setLoading(false);
-    };
     fetchWatchlists();
   }, []);
 
@@ -469,6 +528,12 @@ const WatchlistView = () => {
       setCreating(false);
     }
   };
+  const watchlistStatus = summarizeRequestStatus({
+    label: 'Watchlists',
+    loading,
+    error: requestError,
+    itemCount: watchlists.length,
+  });
 
   return (
     <div className="space-y-4">
@@ -523,6 +588,8 @@ const WatchlistView = () => {
           {composerOpen ? 'Close' : 'New'}
         </button>
       </div>
+
+      <RequestStatusBanner status={watchlistStatus} onRetry={fetchWatchlists} />
 
       {composerOpen && (
         <form
