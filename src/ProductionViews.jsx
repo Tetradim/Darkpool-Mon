@@ -1,6 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircle, PauseCircle, MessageSquare, Zap } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircle, PauseCircle, MessageSquare, Zap, Plus, X } from 'lucide-react';
 import { TradeIntentView } from './TradeIntentView';
+import { ALERT_SEVERITY_FILTERS, ALERT_STATE_FILTERS, filterAlerts } from './alertFilters';
+import { summarizeHealthStatus } from './healthStatus';
+import { SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
+import {
+  buildWatchlistCreateUrl,
+  normalizeCreatedWatchlist,
+  parseWatchlistSymbols,
+  validateWatchlistDraft,
+} from './watchlistBuilder';
 
 // Scanner Table Component
 const ScannerView = () => {
@@ -8,6 +17,8 @@ const ScannerView = () => {
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState('size');
   const [minSize, setMinSize] = useState(1000);
+  const [sideFilter, setSideFilter] = useState('ALL');
+  const [minConfidence, setMinConfidence] = useState(0);
 
   const fetchPrints = async () => {
     setLoading(true);
@@ -26,6 +37,11 @@ const ScannerView = () => {
     const interval = setInterval(fetchPrints, 5000);
     return () => clearInterval(interval);
   }, [minSize, sortBy]);
+
+  const visiblePrints = useMemo(
+    () => filterScannerPrints(prints, { side: sideFilter, minConfidence }),
+    [prints, sideFilter, minConfidence]
+  );
 
   return (
     <div className="space-y-4">
@@ -54,6 +70,40 @@ const ScannerView = () => {
             <option value="price">Price</option>
           </select>
         </div>
+        <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
+          {SCANNER_SIDE_FILTERS.map((side) => (
+            <button
+              key={side}
+              type="button"
+              onClick={() => setSideFilter(side)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-all ${
+                sideFilter === side
+                  ? 'bg-dark-700 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {side}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Conf.</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={minConfidence}
+            onChange={(event) => setMinConfidence(Number(event.target.value))}
+            className="w-24 accent-accent-cyan"
+          />
+          <span className="w-10 text-right font-mono text-xs text-accent-cyan">
+            {Math.round(minConfidence * 100)}%
+          </span>
+        </label>
+        <span className="text-xs text-gray-500">
+          {visiblePrints.length}/{prints.length} rows
+        </span>
         <button
           onClick={fetchPrints}
           className="ml-auto px-3 py-1 bg-dark-700 rounded text-sm hover:bg-dark-600"
@@ -81,9 +131,9 @@ const ScannerView = () => {
           <tbody>
             {loading ? (
               <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
-            ) : prints.length === 0 ? (
+            ) : visiblePrints.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No prints</td></tr>
-            ) : prints.map((print, idx) => (
+            ) : visiblePrints.map((print, idx) => (
               <tr key={idx} className="border-t border-dark-700 hover:bg-dark-700/50">
                 <td className="px-4 py-2 font-mono text-white">{print.symbol}</td>
                 <td className="px-4 py-2">
@@ -119,6 +169,8 @@ const ScannerView = () => {
 const AlertsView = () => {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [stateFilter, setStateFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -156,6 +208,11 @@ const AlertsView = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const visibleAlerts = useMemo(
+    () => filterAlerts(alerts, { state: stateFilter, severity: severityFilter }),
+    [alerts, stateFilter, severityFilter]
+  );
+
   const stateIcons = {
     new: <AlertTriangle size={14} className="text-yellow-400" />,
     acknowledged: <CheckCircle size={14} className="text-green-400" />,
@@ -172,18 +229,56 @@ const AlertsView = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4 bg-dark-800 rounded-xl p-4">
-        <Activity size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
-        <span className="text-white font-medium">Alert Trigger Log</span>
-        <span className="ml-auto text-sm text-gray-400">{alerts.length} alerts</span>
+      <div className="space-y-3 bg-dark-800 rounded-xl p-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <Activity size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
+          <span className="text-white font-medium">Alert Trigger Log</span>
+          <span className="ml-auto text-sm text-gray-400">{visibleAlerts.length}/{alerts.length} alerts</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
+            {ALERT_STATE_FILTERS.map((state) => (
+              <button
+                key={state}
+                type="button"
+                onClick={() => setStateFilter(state)}
+                className={`rounded px-2.5 py-1 text-xs font-medium capitalize transition-all ${
+                  stateFilter === state
+                    ? 'bg-dark-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {state}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
+            {ALERT_SEVERITY_FILTERS.map((severity) => (
+              <button
+                key={severity}
+                type="button"
+                onClick={() => setSeverityFilter(severity)}
+                className={`rounded px-2.5 py-1 text-xs font-medium capitalize transition-all ${
+                  severityFilter === severity
+                    ? 'bg-dark-700 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {severity}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2">
         {loading ? (
           <div className="bg-dark-800 rounded-xl p-8 text-center text-gray-500">Loading...</div>
-        ) : alerts.length === 0 ? (
+        ) : visibleAlerts.length === 0 ? (
           <div className="bg-dark-800 rounded-xl p-8 text-center text-gray-500">No alerts</div>
-        ) : alerts.map((alert) => (
+        ) : visibleAlerts.map((alert) => (
           <div key={alert.id} className="bg-dark-800 rounded-xl p-4 flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${severityColors[alert.severity]}`} />
@@ -243,6 +338,13 @@ const AlertsView = () => {
 const WatchlistView = () => {
   const [watchlists, setWatchlists] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftSymbols, setDraftSymbols] = useState('');
+  const [formError, setFormError] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const previewSymbols = useMemo(() => parseWatchlistSymbols(draftSymbols), [draftSymbols]);
 
   useEffect(() => {
     const fetchWatchlists = async () => {
@@ -259,20 +361,120 @@ const WatchlistView = () => {
     fetchWatchlists();
   }, []);
 
+  const handleCreateWatchlist = async (event) => {
+    event.preventDefault();
+    const draft = validateWatchlistDraft({ name: draftName, symbolsText: draftSymbols });
+    if (draft.errors.length > 0) {
+      setFormError(draft.errors.join(' '));
+      return;
+    }
+
+    setCreating(true);
+    setFormError('');
+    try {
+      const res = await fetch(buildWatchlistCreateUrl({ name: draft.name, symbols: draft.symbols }), {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error(`Watchlist create failed: ${res.status}`);
+      }
+      const data = await res.json();
+      const created = normalizeCreatedWatchlist(data.watchlist || data);
+      setWatchlists((previous) => [created, ...previous]);
+      setDraftName('');
+      setDraftSymbols('');
+      setComposerOpen(false);
+    } catch (err) {
+      setFormError(err.message || 'Watchlist create failed');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4 bg-dark-800 rounded-xl p-4">
         <Zap size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
         <span className="text-white font-medium">Watchlists</span>
-        <button className="ml-auto px-3 py-1 bg-dark-700 rounded text-sm hover:bg-dark-600">
-          + New
+        <span className="text-xs text-gray-500">{watchlists.length} lists</span>
+        <button
+          type="button"
+          onClick={() => {
+            setComposerOpen((open) => !open);
+            setFormError('');
+          }}
+          className="ml-auto flex items-center gap-2 rounded bg-dark-700 px-3 py-1 text-sm text-gray-200 transition-all hover:bg-dark-600 hover:text-white"
+        >
+          {composerOpen ? <X size={14} /> : <Plus size={14} />}
+          {composerOpen ? 'Close' : 'New'}
         </button>
       </div>
+
+      {composerOpen && (
+        <form
+          onSubmit={handleCreateWatchlist}
+          className="grid grid-cols-1 gap-4 rounded-xl border border-dark-600/70 bg-dark-800 p-4 lg:grid-cols-[minmax(220px,0.75fr)_1fr_auto]"
+        >
+          <label className="space-y-1">
+            <span className="text-xs text-gray-400">List Name</span>
+            <input
+              value={draftName}
+              onChange={(event) => setDraftName(event.target.value)}
+              placeholder="Desk review"
+              className="w-full rounded-lg border border-dark-600 bg-dark-900 px-3 py-2 text-white outline-none transition-all focus:border-accent-cyan"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs text-gray-400">Symbols</span>
+            <input
+              value={draftSymbols}
+              onChange={(event) => setDraftSymbols(event.target.value)}
+              placeholder="AAPL, NVDA, MSFT"
+              className="w-full rounded-lg border border-dark-600 bg-dark-900 px-3 py-2 font-mono text-white outline-none transition-all focus:border-accent-cyan"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={creating}
+              className="w-full rounded-lg bg-accent-cyan/20 px-4 py-2 text-sm font-medium text-accent-cyan transition-all hover:bg-accent-cyan/30 active:scale-[0.99] disabled:opacity-60"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              {creating ? 'Creating...' : 'Create'}
+            </button>
+          </div>
+
+          <div className="lg:col-span-3">
+            {previewSymbols.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {previewSymbols.map((symbol) => (
+                  <span key={symbol} className="rounded bg-dark-700 px-2 py-1 font-mono text-xs text-white">
+                    {symbol}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">Enter comma, space, or newline separated tickers.</p>
+            )}
+            {formError && (
+              <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                {formError}
+              </p>
+            )}
+          </div>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loading ? (
           <div className="md:col-span-3 bg-dark-800 rounded-xl p-8 text-center text-gray-500">
             Loading...
+          </div>
+        ) : watchlists.length === 0 ? (
+          <div className="md:col-span-3 bg-dark-800 rounded-xl p-8 text-center text-gray-500">
+            No watchlists yet. Create one for the symbols you are actively reviewing.
           </div>
         ) : watchlists.map((wl) => (
           <div key={wl.id} className="bg-dark-800 rounded-xl p-4">
@@ -290,6 +492,11 @@ const WatchlistView = () => {
             <div className="text-xs text-gray-500">
               <Clock size={12} className="inline mr-1" />
               Created {new Date(wl.created_at).toLocaleDateString()}
+              {wl.filters?.length > 0 && (
+                <span className="ml-2 rounded bg-dark-700 px-2 py-0.5">
+                  {wl.filters.length} filter{wl.filters.length === 1 ? '' : 's'}
+                </span>
+              )}
             </div>
           </div>
         ))}
@@ -330,8 +537,45 @@ const HealthView = () => {
     return <div className="bg-dark-800 rounded-xl p-8 text-center text-gray-500">Loading...</div>;
   }
 
+  const healthSummary = summarizeHealthStatus(health, sources);
+
   return (
     <div className="space-y-4">
+      <div className={`rounded-xl border p-4 ${healthSummary.toneClass}`}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">{healthSummary.label}</span>
+              <span className="rounded border border-current/25 px-2 py-0.5 text-xs uppercase">
+                System health
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-gray-200">{healthSummary.summary}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-right">
+            <div className="rounded-lg bg-dark-900/40 px-3 py-2">
+              <div className="font-mono text-lg text-white">{healthSummary.connectorCounts.online}</div>
+              <div className="text-xs text-gray-400">online</div>
+            </div>
+            <div className="rounded-lg bg-dark-900/40 px-3 py-2">
+              <div className="font-mono text-lg text-white">{healthSummary.connectorCounts.degraded}</div>
+              <div className="text-xs text-gray-400">degraded</div>
+            </div>
+            <div className="rounded-lg bg-dark-900/40 px-3 py-2">
+              <div className="font-mono text-lg text-white">{healthSummary.connectorCounts.offline}</div>
+              <div className="text-xs text-gray-400">offline</div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {healthSummary.reasons.map((reason) => (
+            <span key={reason} className="rounded bg-dark-900/45 px-2 py-1 text-xs text-gray-200">
+              {reason}
+            </span>
+          ))}
+        </div>
+      </div>
+
       {/* Health Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-dark-800 rounded-xl p-4">

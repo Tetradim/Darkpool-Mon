@@ -24,9 +24,29 @@ import { ScannerView, AlertsView, WatchlistView, HealthView } from './Production
 import { TradeIntentView } from './TradeIntentView';
 import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
 import { computeZScore, rowsToCsv } from './flowEngine';
+import { VIEW_MODES } from './viewModes';
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
+const VIEW_MODE_ICONS = {
+  dashboard: Activity,
+  intent: Zap,
+  options: PieChart,
+  scanner: Filter,
+  flowmap: BarChart3,
+  alerts: Bell,
+  watchlist: DollarSign,
+  replay: Clock,
+  admin: Settings,
+  health: AlertTriangle,
+};
+const GREEK_FILTERS = [
+  ['Δ', 'Delta'],
+  ['Γ', 'Gamma'],
+  ['Θ', 'Theta'],
+  ['ν', 'Vega'],
+  ['ρ', 'Rho'],
+];
 
 const exportTransactionsToCsv = (rows) => {
   const csv = rowsToCsv(rows);
@@ -368,7 +388,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-dark-900 p-4 lg:p-6">
-      <header className="flex flex-wrap items-center justify-between mb-6 gap-4">
+      <header className="mb-6 grid gap-4 xl:grid-cols-[minmax(260px,auto)_1fr_auto] xl:items-center">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-accent-cyan to-accent-purple flex items-center justify-center">
             <Activity className="text-white" size={24} />
@@ -379,31 +399,40 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <nav
+          className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-xl border border-dark-600/70 bg-dark-800/80 p-1"
+          aria-label="Primary views"
+        >
+          {VIEW_MODES.map((mode) => {
+            const Icon = VIEW_MODE_ICONS[mode.id] || Activity;
+            const isActive = viewMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setViewMode(mode.id)}
+                aria-current={isActive ? 'page' : undefined}
+                title={mode.description}
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-dark-700 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-dark-700/70 hover:text-white'
+                }`}
+                style={{
+                  color: isActive ? 'var(--color-accent)' : undefined,
+                }}
+              >
+                <Icon size={14} />
+                <span>{mode.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="flex flex-wrap items-center gap-3 xl:justify-end">
           <div className="flex items-center gap-2 text-gray-400">
             <Clock size={16} />
             <span className="font-mono text-sm">{currentTime.toLocaleTimeString()}</span>
-          </div>
-
-          {/* View Mode Toggle */}
-          <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-1">
-            {['dashboard', 'intent', 'options', 'scanner', 'flowmap', 'alerts', 'watchlist', 'replay', 'admin', 'health'].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                  viewMode === mode
-                    ? 'bg-dark-700 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-                style={{
-                  backgroundColor: viewMode === mode ? 'var(--color-card)' : undefined,
-                  color: viewMode === mode ? 'var(--color-accent)' : undefined,
-                }}
-              >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </button>
-            ))}
           </div>
 
           <div className="flex items-center gap-2">
@@ -427,38 +456,39 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-4 mb-6">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsRunning(!isRunning)}
-            className={`
-              flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
-              ${isRunning
-                ? 'bg-accent-red/20 text-accent-red hover:bg-accent-red/30'
-                : 'bg-accent-green/20 text-accent-green hover:bg-accent-green/30'}
-            `}
-          >
-            {isRunning ? <Pause size={16} /> : <Play size={16} />}
-            {isRunning ? 'Pause' : 'Resume'}
-          </button>
+      {viewMode === 'dashboard' && (
+        <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-dark-600/70 bg-dark-800/55 p-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsRunning(!isRunning)}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
+                ${isRunning
+                  ? 'bg-accent-red/20 text-accent-red hover:bg-accent-red/30'
+                  : 'bg-accent-green/20 text-accent-green hover:bg-accent-green/30'}
+              `}
+            >
+              {isRunning ? <Pause size={16} /> : <Play size={16} />}
+              {isRunning ? 'Pause' : 'Resume'}
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setTransactions([]);
-              setAlerts([]);
-              setChartData(createInitialChartData(timeframe));
-              setStockPrices(createInitialStockPrices());
-              setNewTransactionId(null);
-            }}
-            className="p-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white transition-all"
-            aria-label="Reset simulation"
-            title="Reset simulation"
-          >
-            <RefreshCw size={16} />
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setTransactions([]);
+                setAlerts([]);
+                setChartData(createInitialChartData(timeframe));
+                setStockPrices(createInitialStockPrices());
+                setNewTransactionId(null);
+              }}
+              className="p-2 rounded-lg bg-dark-800 text-gray-400 hover:text-white transition-all"
+              aria-label="Reset simulation"
+              title="Reset simulation"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
 
         <div className="flex items-center gap-2">
           {['1H', '4H', '1D'].map((frame) => (
@@ -511,7 +541,7 @@ export default function App() {
 
         {/* Greeks Display */}
         <div className="flex items-center gap-1 ml-2">
-          {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
+          {GREEK_FILTERS.map(([symbol, name]) => (
             <label
               key={name}
               className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
@@ -562,6 +592,7 @@ export default function App() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Main Content Based on View Mode */}
       {viewMode === 'options' ? (
@@ -584,93 +615,6 @@ export default function App() {
         <AdminView />
       ) : (
         <>
-          {/* Dashboard Controls - Only show for dashboard view */}
-          <div className="flex flex-wrap items-center gap-4 mb-6">
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedStock}
-                onChange={(e) => setSelectedStock(e.target.value)}
-                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
-                style={{ borderColor: 'var(--color-border)' }}
-              >
-                <option value="ALL">ALL STOCKS</option>
-                {Object.values(MAG7_STOCKS).map((stock) => (
-                  <option key={stock.symbol} value={stock.symbol}>
-                    {stock.symbol} - {stock.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Whale:</span>
-              <input
-                type="range"
-                min="10"
-                max="200"
-                step="10"
-                value={whaleThreshold}
-                onChange={(event) => setWhaleThreshold(Number(event.target.value))}
-                className="w-24 accent-accent-yellow"
-                style={{ accentColor: 'var(--color-accent-yellow)' }}
-              />
-              <span className="font-mono text-sm text-accent-yellow">{whaleThreshold}K</span>
-            </div>
-
-            {/* Greeks Display */}
-            <div className="flex items-center gap-1 ml-2">
-              {Object.entries({ Δ: 'Delta', Γ: 'Gamma', Θ: 'Theta', ν: 'Vega', ρ: 'Rho' }).map(([symbol, name]) => (
-                <label
-                  key={name}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-dark-800 cursor-pointer hover:bg-dark-700"
-                  title={name}
-                >
-                  <input type="checkbox" className="sr-only" />
-                  <span
-                    className="font-bold text-sm"
-                    style={{ color: 'var(--color-accent)' }}
-                  >
-                    {symbol}
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Min:</span>
-              <input
-                type="range"
-                min="1"
-                max="50"
-                value={threshold}
-                onChange={(event) => setThreshold(Number(event.target.value))}
-                className="w-24 accent-accent-cyan"
-              />
-              <span className="font-mono text-sm text-accent-cyan">${threshold}M</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <select
-                value={feedSort}
-                onChange={(event) => setFeedSort(event.target.value)}
-                className="bg-dark-800 text-white rounded-lg px-3 py-1.5 font-mono text-sm border border-dark-600 focus:border-accent-cyan outline-none"
-              >
-                <option value="LATEST">Latest first</option>
-                <option value="LARGEST">Largest first</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={() => exportTransactionsToCsv(filteredTransactions)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-dark-800 text-gray-300 hover:text-white transition-all"
-                title="Export filtered feed"
-              >
-                <Download size={14} />
-                Export CSV
-              </button>
-            </div>
-          </div>
-
           {/* Stock Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
             {Object.values(MAG7_STOCKS).map((stock) => (

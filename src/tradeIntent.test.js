@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  TRADE_INTENT_PRESETS,
+  applyTradeIntentPreset,
   buildTradeIntentUrl,
   formatConfirmationSummary,
   formatConfidenceBreakdown,
@@ -15,6 +17,63 @@ import {
   getIntentTone,
   summarizePulsePacket,
 } from './tradeIntent';
+
+describe('applyTradeIntentPreset', () => {
+  it('exposes named operating presets for the intent controls', () => {
+    expect(TRADE_INTENT_PRESETS.map((preset) => preset.id)).toEqual([
+      'balanced',
+      'momentum',
+      'defensive',
+    ]);
+  });
+
+  it('applies a preset while preserving operator context and confirmations', () => {
+    const settings = applyTradeIntentPreset(
+      {
+        symbol: 'MSFT',
+        provider: 'finra',
+        priceConfirmed: true,
+        liquidityConfirmed: true,
+        newsChecked: false,
+        observedSpreadBps: 8,
+        sourceCoverageOverrideReason: 'desk verified NBBO and halt status',
+      },
+      'defensive'
+    );
+
+    expect(settings).toMatchObject({
+      symbol: 'MSFT',
+      provider: 'finra',
+      minScore: 88,
+      maxDistancePct: 0.5,
+      minNotional: 50000000,
+      maxFreshnessMinutes: 45,
+      maxRiskDollars: 250,
+      rewardRiskRatio: 2.5,
+      maxQualityCautionFlags: 1,
+      minQualitySupportFlags: 2,
+      minSourceConfirmationWeight: 0.6,
+      requireSourceCoverageComplete: true,
+      priceConfirmed: true,
+      liquidityConfirmed: true,
+      newsChecked: false,
+      observedSpreadBps: 8,
+      sourceCoverageOverrideReason: 'desk verified NBBO and halt status',
+    });
+  });
+
+  it('falls back to the balanced preset when an unknown preset id is requested', () => {
+    const settings = applyTradeIntentPreset({ symbol: 'NVDA' }, 'not-a-preset');
+
+    expect(settings).toMatchObject({
+      symbol: 'NVDA',
+      minScore: 75,
+      maxDistancePct: 1,
+      minNotional: 25000000,
+      maxRiskDollars: 500,
+    });
+  });
+});
 
 describe('buildTradeIntentUrl', () => {
   it('serializes user threshold preferences for the backend gate', () => {

@@ -5,7 +5,7 @@ def test_vite_dev_server_proxies_backend_api_routes():
     config = Path("vite.config.js").read_text(encoding="utf-8")
 
     assert "proxy" in config
-    assert "http://127.0.0.1:8000" in config
+    assert "http://127.0.0.1:8002" in config
     assert '"/darkpool"' in config or "'/darkpool'" in config
 
 

@@ -1,20 +1,46 @@
 import { useEffect, useState } from 'react';
-import { Activity } from 'lucide-react';
-import { DEFAULT_TRADE_INTENT_SETTINGS, buildTradeIntentUrl } from './tradeIntentControls';
+import { Activity, ShieldCheck, SlidersHorizontal, Target } from 'lucide-react';
+import {
+  DEFAULT_TRADE_INTENT_SETTINGS,
+  TRADE_INTENT_PRESETS,
+  applyTradeIntentPreset,
+  buildTradeIntentUrl,
+} from './tradeIntentControls';
 import { getIntentTone } from './tradeIntent';
 import { TradeIntentSummary } from './TradeIntentSummary';
 
-const NUMBER_FIELDS = [
-  ['maxDistancePct', 'Max Distance %', '0', '0.05'],
-  ['minNotional', 'Min Notional', '0', '1000000'],
-  ['maxFreshnessMinutes', 'Max Freshness Minutes', '0', '5'],
-  ['maxRiskDollars', 'Max Risk Dollars', '0', '50'],
-  ['stopDistancePct', 'Stop Distance %', '0', '0.1'],
-  ['rewardRiskRatio', 'Reward/Risk', '0', '0.25'],
-  ['maxPositionNotional', 'Max Position Notional', '0', '1000'],
-  ['maxQualityCautionFlags', 'Max Caution Flags', '0', '1'],
-  ['minQualitySupportFlags', 'Min Support Flags', '0', '1'],
-  ['minSourceConfirmationWeight', 'Min Source Weight', '0', '0.05', '1'],
+const NUMBER_FIELD_GROUPS = [
+  {
+    id: 'signal',
+    title: 'Signal gate',
+    icon: Target,
+    fields: [
+      ['maxDistancePct', 'Max Distance %', '0', '0.05'],
+      ['minNotional', 'Min Notional', '0', '1000000'],
+      ['maxFreshnessMinutes', 'Max Freshness Minutes', '0', '5'],
+    ],
+  },
+  {
+    id: 'risk',
+    title: 'Risk envelope',
+    icon: SlidersHorizontal,
+    fields: [
+      ['maxRiskDollars', 'Max Risk Dollars', '0', '50'],
+      ['stopDistancePct', 'Stop Distance %', '0', '0.1'],
+      ['rewardRiskRatio', 'Reward/Risk', '0', '0.25'],
+      ['maxPositionNotional', 'Max Position Notional', '0', '1000'],
+    ],
+  },
+  {
+    id: 'quality',
+    title: 'Quality controls',
+    icon: ShieldCheck,
+    fields: [
+      ['maxQualityCautionFlags', 'Max Caution Flags', '0', '1'],
+      ['minQualitySupportFlags', 'Min Support Flags', '0', '1'],
+      ['minSourceConfirmationWeight', 'Min Source Weight', '0', '0.05', '1'],
+    ],
+  },
 ];
 
 const TRADE_TOGGLES = [
@@ -32,12 +58,18 @@ const CONFIRMATION_TOGGLES = [
 
 export const TradeIntentView = () => {
   const [controls, setControls] = useState(DEFAULT_TRADE_INTENT_SETTINGS);
+  const [activePreset, setActivePreset] = useState('balanced');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const updateControl = (key, value) => {
     setControls((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const selectPreset = (presetId) => {
+    setActivePreset(presetId);
+    setControls((previous) => applyTradeIntentPreset(previous, presetId));
   };
 
   const fetchIntent = async () => {
@@ -70,13 +102,44 @@ export const TradeIntentView = () => {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-4">
-        <div className="bg-dark-800 rounded-xl p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Activity size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
-            <span className="text-white font-medium">Trade Intent Controls</span>
+        <div className="bg-dark-800 rounded-xl border border-dark-600/70 p-4 space-y-5 shadow-2xl shadow-black/20">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-dark-700 text-accent-cyan">
+                <Activity size={17} style={{ color: 'var(--color-accent)' }} />
+              </span>
+              <div>
+                <span className="block text-sm font-semibold text-white">Trade Intent Controls</span>
+                <span className="block text-xs text-gray-500">Sentinel review gate</span>
+              </div>
+            </div>
+            <span className="rounded border border-dark-600 px-2 py-1 text-xs font-mono text-gray-300">
+              {controls.minScore}+ score
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-2">
+            {TRADE_INTENT_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => selectPreset(preset.id)}
+                className={`rounded-lg border p-3 text-left transition-all duration-200 ${
+                  activePreset === preset.id
+                    ? 'border-accent-cyan/70 bg-accent-cyan/10 text-white shadow-lg shadow-cyan-950/30'
+                    : 'border-dark-600 bg-dark-900/70 text-gray-300 hover:border-dark-500 hover:bg-dark-700'
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{preset.label}</span>
+                  <span className="font-mono text-xs text-gray-400">{preset.settings.minScore}</span>
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500">{preset.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-dark-900/60 p-3">
             <label className="space-y-1">
               <span className="text-xs text-gray-400">Symbol</span>
               <input
@@ -99,7 +162,7 @@ export const TradeIntentView = () => {
             </label>
           </div>
 
-          <label className="block space-y-2">
+          <label className="block space-y-2 rounded-lg bg-dark-900/60 p-3">
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">Minimum Score</span>
               <span className="text-sm font-mono text-white">{controls.minScore}</span>
@@ -114,20 +177,30 @@ export const TradeIntentView = () => {
             />
           </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
-            {NUMBER_FIELDS.map(([key, label, min, step, max]) => (
-              <label key={key} className="space-y-1">
-                <span className="text-xs text-gray-400">{label}</span>
-                <input
-                  type="number"
-                  min={min}
-                  max={max}
-                  step={step}
-                  value={controls[key]}
-                  onChange={(event) => updateControl(key, Number(event.target.value))}
-                  className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white font-mono"
-                />
-              </label>
+          <div className="space-y-3">
+            {NUMBER_FIELD_GROUPS.map(({ id, title, icon: Icon, fields }) => (
+              <section key={id} className="rounded-lg bg-dark-900/60 p-3">
+                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-300">
+                  <Icon size={14} style={{ color: 'var(--color-accent)' }} />
+                  {title}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
+                  {fields.map(([key, label, min, step, max]) => (
+                    <label key={key} className="space-y-1">
+                      <span className="text-xs text-gray-400">{label}</span>
+                      <input
+                        type="number"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={controls[key]}
+                        onChange={(event) => updateControl(key, Number(event.target.value))}
+                        className="w-full rounded-lg border border-dark-600 bg-dark-800 px-3 py-2 font-mono text-white outline-none transition-all focus:border-accent-cyan"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
 
@@ -153,7 +226,7 @@ export const TradeIntentView = () => {
             <input
               value={controls.sourceCoverageOverrideReason}
               onChange={(event) => updateControl('sourceCoverageOverrideReason', event.target.value)}
-              className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white"
+              className="w-full rounded-lg border border-dark-600 bg-dark-900 px-3 py-2 text-white outline-none transition-all focus:border-accent-cyan"
             />
           </label>
 
@@ -200,15 +273,17 @@ export const TradeIntentView = () => {
             </label>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchIntent}
-            disabled={loading}
-            className="w-full px-4 py-2 rounded-lg bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 disabled:opacity-60"
-            style={{ color: 'var(--color-accent)' }}
-          >
-            {loading ? 'Refreshing...' : 'Refresh Intent'}
-          </button>
+          <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-dark-600/70 bg-dark-800/95 p-4 backdrop-blur">
+            <button
+              type="button"
+              onClick={fetchIntent}
+              disabled={loading}
+              className="w-full rounded-lg bg-accent-cyan/20 px-4 py-2 font-medium text-accent-cyan transition-all hover:bg-accent-cyan/30 active:scale-[0.99] disabled:opacity-60"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              {loading ? 'Refreshing...' : 'Refresh Intent'}
+            </button>
+          </div>
         </div>
 
         <div className="bg-dark-800 rounded-xl p-4 space-y-4">

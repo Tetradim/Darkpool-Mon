@@ -1,4 +1,9 @@
-export { DEFAULT_TRADE_INTENT_SETTINGS, buildTradeIntentUrl } from './tradeIntentControls';
+export {
+  DEFAULT_TRADE_INTENT_SETTINGS,
+  TRADE_INTENT_PRESETS,
+  applyTradeIntentPreset,
+  buildTradeIntentUrl,
+} from './tradeIntentControls';
 
 export const getIntentTone = (intent) => {
   if (!intent) {

@@ -24,6 +24,104 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   includePulsePacket: true,
 };
 
+export const TRADE_INTENT_PRESETS = [
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Default gate for routine desk review.',
+    settings: {
+      minScore: 75,
+      maxDistancePct: 1,
+      minNotional: 25000000,
+      maxFreshnessMinutes: 120,
+      maxRiskDollars: 500,
+      stopDistancePct: 1,
+      rewardRiskRatio: 2,
+      maxPositionNotional: 50000,
+      maxQualityCautionFlags: 99,
+      minQualitySupportFlags: 0,
+      minSourceConfirmationWeight: 0,
+      requireSourceCoverageComplete: true,
+      allowBuy: true,
+      allowSell: true,
+      includePulsePacket: true,
+    },
+  },
+  {
+    id: 'momentum',
+    label: 'Momentum',
+    description: 'Wider scanner stance for faster tape moves.',
+    settings: {
+      minScore: 68,
+      maxDistancePct: 1.5,
+      minNotional: 15000000,
+      maxFreshnessMinutes: 180,
+      maxRiskDollars: 750,
+      stopDistancePct: 1.25,
+      rewardRiskRatio: 1.8,
+      maxPositionNotional: 75000,
+      maxQualityCautionFlags: 3,
+      minQualitySupportFlags: 0,
+      minSourceConfirmationWeight: 0.2,
+      requireSourceCoverageComplete: true,
+      allowBuy: true,
+      allowSell: true,
+      includePulsePacket: true,
+    },
+  },
+  {
+    id: 'defensive',
+    label: 'Defensive',
+    description: 'Tighter gate for high-conviction, low-noise review.',
+    settings: {
+      minScore: 88,
+      maxDistancePct: 0.5,
+      minNotional: 50000000,
+      maxFreshnessMinutes: 45,
+      maxRiskDollars: 250,
+      stopDistancePct: 0.75,
+      rewardRiskRatio: 2.5,
+      maxPositionNotional: 25000,
+      maxQualityCautionFlags: 1,
+      minQualitySupportFlags: 2,
+      minSourceConfirmationWeight: 0.6,
+      requireSourceCoverageComplete: true,
+      allowBuy: true,
+      allowSell: true,
+      includePulsePacket: true,
+    },
+  },
+];
+
+const OPERATOR_CONTEXT_KEYS = [
+  'symbol',
+  'provider',
+  'priceConfirmed',
+  'liquidityConfirmed',
+  'newsChecked',
+  'observedSpreadBps',
+  'maxSpreadBps',
+  'sourceCoverageOverrideReason',
+];
+
+export const applyTradeIntentPreset = (currentSettings = {}, presetId = 'balanced') => {
+  const preset =
+    TRADE_INTENT_PRESETS.find((candidate) => candidate.id === presetId) ||
+    TRADE_INTENT_PRESETS[0];
+  const preservedContext = OPERATOR_CONTEXT_KEYS.reduce((acc, key) => {
+    if (Object.prototype.hasOwnProperty.call(currentSettings, key)) {
+      acc[key] = currentSettings[key];
+    }
+    return acc;
+  }, {});
+
+  return {
+    ...DEFAULT_TRADE_INTENT_SETTINGS,
+    ...preset.settings,
+    ...preservedContext,
+  };
+};
+
 const asNumber = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
