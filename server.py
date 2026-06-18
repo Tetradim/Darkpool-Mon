@@ -5,6 +5,7 @@ import asyncio
 import logging
 import secrets
 import hashlib
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from enum import Enum
@@ -33,10 +34,23 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    broadcast_task = asyncio.create_task(broadcast_mock_transactions())
+    try:
+        yield
+    finally:
+        broadcast_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await broadcast_task
+
+
 app = FastAPI(
     title="Darkpool Monitor API",
     description="Backend for real-time darkpool monitoring with FINRA OTC data",
     version="2.0.0",
+    lifespan=lifespan,
 )
 app.include_router(darkpool_router)
 
@@ -2912,11 +2926,6 @@ async def broadcast_mock_transactions():
             "timestamp": datetime.now().isoformat(),
         }
         await ws_manager.broadcast_transaction(txn)
-
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(broadcast_mock_transactions())
 
 
 # ============================================================================

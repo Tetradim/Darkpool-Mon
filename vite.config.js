@@ -6,13 +6,11 @@ export const getVendorChunkName = (id) => {
 
   if (id.includes('lucide-react')) return 'vendor-icons'
 
-  if (
-    id.includes('recharts') ||
-    id.includes('d3-') ||
-    id.includes('victory-vendor')
-  ) {
-    return 'vendor-charts'
-  }
+  if (id.includes('recharts')) return 'vendor-recharts'
+
+  if (id.includes('victory-vendor')) return 'vendor-victory'
+
+  if (id.includes('d3-')) return 'vendor-d3'
 
   if (
     id.includes('react') ||

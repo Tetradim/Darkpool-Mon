@@ -61,6 +61,13 @@ def test_documented_python_server_startup_registers_all_routes_before_running_uv
     assert last_route_decorator < main_block
 
 
+def test_server_startup_uses_lifespan_hook_instead_of_deprecated_event():
+    source = Path("server.py").read_text(encoding="utf-8")
+
+    assert 'lifespan=lifespan' in source
+    assert '@app.on_event("startup")' not in source
+
+
 def test_alert_route_records_successful_delivery_history():
     client = TestClient(server.app)
     server.alert_router.recent_alerts.clear()

@@ -5,10 +5,10 @@ import { getVendorChunkName } from './vite.config';
 const nodeModulePath = (packageName) => `C:/workspace/node_modules/${packageName}/index.js`;
 
 describe('Vite manual chunk strategy', () => {
-  it('keeps chart libraries in their own vendor chunk', () => {
-    expect(getVendorChunkName(nodeModulePath('recharts'))).toBe('vendor-charts');
-    expect(getVendorChunkName(nodeModulePath('d3-scale'))).toBe('vendor-charts');
-    expect(getVendorChunkName(nodeModulePath('victory-vendor'))).toBe('vendor-charts');
+  it('splits chart dependencies by package family to avoid oversized chunks', () => {
+    expect(getVendorChunkName(nodeModulePath('recharts'))).toBe('vendor-recharts');
+    expect(getVendorChunkName(nodeModulePath('d3-scale'))).toBe('vendor-d3');
+    expect(getVendorChunkName(nodeModulePath('victory-vendor'))).toBe('vendor-victory');
   });
 
   it('splits React, icons, and app code deliberately', () => {
