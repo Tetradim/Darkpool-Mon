@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildWatchlistCreateUrl,
+  filterWatchlists,
   normalizeCreatedWatchlist,
   parseWatchlistSymbols,
+  summarizeWatchlists,
   validateWatchlistDraft,
 } from './watchlistBuilder';
 
@@ -64,6 +66,63 @@ describe('normalizeCreatedWatchlist', () => {
       symbols: ['AAPL'],
       filters: [],
       created_at: '2026-06-18T12:00:00',
+    });
+  });
+});
+
+describe('filterWatchlists', () => {
+  const watchlists = [
+    {
+      id: '1',
+      name: 'AI Momentum',
+      owner: 'desk',
+      symbols: ['NVDA', 'AMD', 'SMCI'],
+      filters: ['min_notional'],
+      created_at: '2026-06-18T12:00:00Z',
+    },
+    {
+      id: '2',
+      name: 'Mega cap review',
+      owner: 'pm',
+      symbols: ['AAPL', 'MSFT'],
+      filters: [],
+      created_at: '2026-06-17T12:00:00Z',
+    },
+    {
+      id: '3',
+      name: 'EV squeeze',
+      owner: 'desk',
+      symbols: ['TSLA', 'RIVN', 'LCID', 'NIO'],
+      filters: ['z_score', 'side'],
+      created_at: '2026-06-16T12:00:00Z',
+    },
+  ];
+
+  it('filters lists by query across name, owner, and symbols', () => {
+    expect(filterWatchlists(watchlists, { query: 'nv' }).map((watchlist) => watchlist.id)).toEqual(['1']);
+    expect(filterWatchlists(watchlists, { query: 'PM' }).map((watchlist) => watchlist.id)).toEqual(['2']);
+    expect(filterWatchlists(watchlists, { query: 'squeeze' }).map((watchlist) => watchlist.id)).toEqual(['3']);
+  });
+
+  it('sorts lists by newest, name, and symbol count', () => {
+    expect(filterWatchlists(watchlists, { sortBy: 'newest' }).map((watchlist) => watchlist.id)).toEqual(['1', '2', '3']);
+    expect(filterWatchlists(watchlists, { sortBy: 'name' }).map((watchlist) => watchlist.id)).toEqual(['1', '3', '2']);
+    expect(filterWatchlists(watchlists, { sortBy: 'symbol_count' }).map((watchlist) => watchlist.id)).toEqual(['3', '1', '2']);
+  });
+});
+
+describe('summarizeWatchlists', () => {
+  it('summarizes coverage across watchlists', () => {
+    expect(
+      summarizeWatchlists([
+        { name: 'AI Momentum', symbols: ['NVDA', 'AMD', 'SMCI'], filters: ['min_notional'] },
+        { name: 'Mega cap review', symbols: ['AAPL', 'MSFT', 'NVDA'], filters: [] },
+      ])
+    ).toEqual({
+      listCount: 2,
+      uniqueSymbolCount: 5,
+      filterCount: 1,
+      largestList: { name: 'AI Momentum', symbolCount: 3 },
     });
   });
 });

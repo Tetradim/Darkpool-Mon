@@ -4,9 +4,9 @@ import { SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
 
 describe('filterScannerPrints', () => {
   const prints = [
-    { symbol: 'AAPL', side: 'BUY', confidence: 0.94 },
-    { symbol: 'MSFT', side: 'SELL', confidence: 0.88 },
-    { symbol: 'NVDA', side: 'BUY', confidence: 0.72 },
+    { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
+    { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
+    { symbol: 'NVDA', side: 'BUY', confidence: 0.72, z_score: 1.8 },
     { symbol: 'TSLA', side: 'SELL' },
   ];
 
@@ -16,23 +16,41 @@ describe('filterScannerPrints', () => {
 
   it('filters prints by side and minimum confidence', () => {
     expect(filterScannerPrints(prints, { side: 'BUY', minConfidence: 0.8 })).toEqual([
-      { symbol: 'AAPL', side: 'BUY', confidence: 0.94 },
+      { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
     ]);
   });
 
   it('treats unknown side filters as ALL while still applying confidence', () => {
     expect(filterScannerPrints(prints, { side: 'BLOCK', minConfidence: 0.9 })).toEqual([
-      { symbol: 'AAPL', side: 'BUY', confidence: 0.94 },
+      { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
     ]);
   });
 
   it('keeps prints with missing confidence only when the floor is zero', () => {
     expect(filterScannerPrints(prints, { side: 'SELL', minConfidence: 0 })).toEqual([
-      { symbol: 'MSFT', side: 'SELL', confidence: 0.88 },
+      { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
       { symbol: 'TSLA', side: 'SELL' },
     ]);
     expect(filterScannerPrints(prints, { side: 'SELL', minConfidence: 0.1 })).toEqual([
-      { symbol: 'MSFT', side: 'SELL', confidence: 0.88 },
+      { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
+    ]);
+  });
+
+  it('filters by case-insensitive symbol search while preserving other filters', () => {
+    expect(filterScannerPrints(prints, { query: ' ms ', side: 'SELL', minConfidence: 0.8 })).toEqual([
+      { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
+    ]);
+    expect(filterScannerPrints(prints, { query: 'a' })).toEqual([
+      { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
+      { symbol: 'NVDA', side: 'BUY', confidence: 0.72, z_score: 1.8 },
+      { symbol: 'TSLA', side: 'SELL' },
+    ]);
+  });
+
+  it('keeps only unusual prints when unusual mode is enabled', () => {
+    expect(filterScannerPrints(prints, { unusualOnly: true, minAbsZScore: 2 })).toEqual([
+      { symbol: 'AAPL', side: 'BUY', confidence: 0.94, z_score: 2.4 },
+      { symbol: 'MSFT', side: 'SELL', confidence: 0.88, z_score: -2.7 },
     ]);
   });
 });

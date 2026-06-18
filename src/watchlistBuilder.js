@@ -49,3 +49,62 @@ export const normalizeCreatedWatchlist = (watchlist) => ({
   filters: Array.isArray(watchlist.filters) ? watchlist.filters : [],
   created_at: watchlist.created_at || new Date().toISOString(),
 });
+
+const matchesWatchlistQuery = (watchlist, query) => {
+  const normalizedQuery = String(query || '').trim().toUpperCase();
+  if (!normalizedQuery) return true;
+  return [
+    watchlist?.name,
+    watchlist?.owner,
+    ...(Array.isArray(watchlist?.symbols) ? watchlist.symbols : []),
+  ].some((value) => String(value || '').toUpperCase().includes(normalizedQuery));
+};
+
+const byNewest = (left, right) => {
+  return new Date(right?.created_at || 0).getTime() - new Date(left?.created_at || 0).getTime();
+};
+
+const byName = (left, right) => {
+  return String(left?.name || '').localeCompare(String(right?.name || ''), undefined, { sensitivity: 'base' });
+};
+
+const bySymbolCount = (left, right) => {
+  return (right?.symbols?.length || 0) - (left?.symbols?.length || 0) || byName(left, right);
+};
+
+export const filterWatchlists = (watchlists = [], filters = {}) => {
+  const sortBy = String(filters.sortBy || 'newest').toLowerCase();
+  const sorters = {
+    newest: byNewest,
+    name: byName,
+    symbol_count: bySymbolCount,
+  };
+  const sorter = sorters[sortBy] || sorters.newest;
+
+  return watchlists
+    .filter((watchlist) => matchesWatchlistQuery(watchlist, filters.query))
+    .slice()
+    .sort(sorter);
+};
+
+export const summarizeWatchlists = (watchlists = []) => {
+  const uniqueSymbols = new Set();
+  let filterCount = 0;
+  let largestList = { name: 'N/A', symbolCount: 0 };
+
+  watchlists.forEach((watchlist) => {
+    const symbols = Array.isArray(watchlist?.symbols) ? watchlist.symbols : [];
+    symbols.forEach((symbol) => uniqueSymbols.add(String(symbol || '').toUpperCase()));
+    filterCount += Array.isArray(watchlist?.filters) ? watchlist.filters.length : 0;
+    if (symbols.length > largestList.symbolCount) {
+      largestList = { name: watchlist?.name || 'Untitled', symbolCount: symbols.length };
+    }
+  });
+
+  return {
+    listCount: watchlists.length,
+    uniqueSymbolCount: uniqueSymbols.size,
+    filterCount,
+    largestList,
+  };
+};

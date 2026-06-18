@@ -23,6 +23,7 @@ import OptionsDashboard from './OptionsDashboard';
 import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
 import { TradeIntentView } from './TradeIntentView';
 import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
+import { summarizeDashboardPulse } from './dashboardPulse';
 import { computeZScore, rowsToCsv } from './flowEngine';
 import { VIEW_MODES } from './viewModes';
 
@@ -227,6 +228,68 @@ const TransactionItem = ({ transaction, isNew }) => {
   );
 };
 
+const PulseCard = ({ icon: Icon, label, value, detail, toneClass }) => (
+  <div className={`rounded-xl border p-4 ${toneClass}`}>
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <span className="text-xs font-semibold uppercase text-current/70">{label}</span>
+      <Icon size={18} className="shrink-0" />
+    </div>
+    <div className="min-h-[2rem] font-mono text-2xl font-bold text-white">{value}</div>
+    <p className="mt-2 min-h-[2.5rem] text-sm leading-5 text-current/80">{detail}</p>
+  </div>
+);
+
+const FocusQueue = ({ queue }) => (
+  <section className="mb-6" aria-label="Operator focus queue">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 className="text-sm font-semibold uppercase text-gray-300">Operator Focus Queue</h2>
+        <p className="mt-1 text-xs text-gray-500">Top symbols by live notional, side skew, and whale pressure</p>
+      </div>
+      <span className="rounded-lg bg-dark-900/70 px-2.5 py-1 font-mono text-xs text-gray-400">
+        {queue.length} active
+      </span>
+    </div>
+
+    {queue.length === 0 ? (
+      <div className="rounded-lg border border-dashed border-dark-600 bg-dark-900/40 p-4 text-sm text-gray-500">
+        Focus queue will populate once qualifying prints arrive.
+      </div>
+    ) : (
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {queue.map((item, index) => (
+          <div key={item.symbol} className={`rounded-xl border p-4 ${item.toneClass}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-mono text-2xl font-bold text-white">{item.symbol}</div>
+                <div className="mt-1 text-xs uppercase text-current/70">{item.label}</div>
+              </div>
+              <span className="rounded bg-dark-900/45 px-2 py-1 font-mono text-xs text-white">
+                #{index + 1}
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg bg-dark-900/40 px-2 py-2">
+                <div className="font-mono text-sm text-white">{formatMillionsCurrency(item.notional / 1000000)}</div>
+                <div className="mt-1 text-[11px] text-current/60">notional</div>
+              </div>
+              <div className="rounded-lg bg-dark-900/40 px-2 py-2">
+                <div className="font-mono text-sm text-white">{item.buyRatio}%</div>
+                <div className="mt-1 text-[11px] text-current/60">buy</div>
+              </div>
+              <div className="rounded-lg bg-dark-900/40 px-2 py-2">
+                <div className="font-mono text-sm text-white">{item.whaleCount}</div>
+                <div className="mt-1 text-[11px] text-current/60">whales</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </section>
+);
+
 export default function App() {
   const [isRunning, setIsRunning] = useState(true);
   const [transactions, setTransactions] = useState([]);
@@ -368,6 +431,10 @@ export default function App() {
   const avgTradeSize = transactions.length ? totalVolume / transactions.length : 0;
   const whaleTrades = transactions.filter((transaction) => transaction.size >= whaleThreshold * 1000).length;
   const buyRatio = totalVolume > 0 ? (buyVolume / totalVolume * 100).toFixed(1) : 50;
+  const dashboardPulse = useMemo(
+    () => summarizeDashboardPulse(transactions, alerts, { whaleThresholdK: whaleThreshold }),
+    [transactions, alerts, whaleThreshold]
+  );
 
   const mainChartData = selectedStock === 'ALL'
     ? Object.keys(MAG7_STOCKS).map((symbol) => {
@@ -615,6 +682,39 @@ export default function App() {
         <AdminView />
       ) : (
         <>
+          <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="Session pulse">
+            <PulseCard
+              icon={dashboardPulse.bias.state === 'sell' ? TrendingDown : dashboardPulse.bias.state === 'buy' ? TrendingUp : Activity}
+              label="Tape Bias"
+              value={dashboardPulse.bias.label}
+              detail={dashboardPulse.bias.summary}
+              toneClass={dashboardPulse.bias.toneClass}
+            />
+            <PulseCard
+              icon={DollarSign}
+              label="Leader"
+              value={dashboardPulse.leader.symbol}
+              detail={`${formatCurrency(dashboardPulse.leader.notional)} across ${dashboardPulse.leader.trades} trade${dashboardPulse.leader.trades === 1 ? '' : 's'} (${dashboardPulse.leader.dominantSide})`}
+              toneClass="border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
+            />
+            <PulseCard
+              icon={Zap}
+              label="Whale Pressure"
+              value={dashboardPulse.whales.label}
+              detail={`Threshold ${formatVolume(dashboardPulse.whales.thresholdShares)} shares at current desk setting`}
+              toneClass={dashboardPulse.whales.toneClass}
+            />
+            <PulseCard
+              icon={AlertTriangle}
+              label={dashboardPulse.latestAlert.label}
+              value={dashboardPulse.latestAlert.symbol}
+              detail={dashboardPulse.latestAlert.reason}
+              toneClass="border-purple-500/30 bg-purple-500/10 text-purple-200"
+            />
+          </section>
+
+          <FocusQueue queue={dashboardPulse.focusQueue} />
+
           {/* Stock Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
             {Object.values(MAG7_STOCKS).map((stock) => (

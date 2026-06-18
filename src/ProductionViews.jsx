@@ -1,13 +1,15 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Search, Filter, ArrowUpDown, Activity, Clock, AlertTriangle, CheckCircle, PauseCircle, MessageSquare, Zap, Plus, X } from 'lucide-react';
 import { TradeIntentView } from './TradeIntentView';
-import { ALERT_SEVERITY_FILTERS, ALERT_STATE_FILTERS, filterAlerts } from './alertFilters';
-import { summarizeHealthStatus } from './healthStatus';
-import { SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
+import { ALERT_SEVERITY_FILTERS, ALERT_STATE_FILTERS, filterAlerts, summarizeAlertTriage } from './alertFilters';
+import { filterDataSources, summarizeDataSources, summarizeHealthStatus } from './healthStatus';
+import { DEFAULT_UNUSUAL_ZSCORE, SCANNER_SIDE_FILTERS, filterScannerPrints } from './scannerFilters';
 import {
   buildWatchlistCreateUrl,
+  filterWatchlists,
   normalizeCreatedWatchlist,
   parseWatchlistSymbols,
+  summarizeWatchlists,
   validateWatchlistDraft,
 } from './watchlistBuilder';
 
@@ -19,6 +21,8 @@ const ScannerView = () => {
   const [minSize, setMinSize] = useState(1000);
   const [sideFilter, setSideFilter] = useState('ALL');
   const [minConfidence, setMinConfidence] = useState(0);
+  const [symbolQuery, setSymbolQuery] = useState('');
+  const [unusualOnly, setUnusualOnly] = useState(false);
 
   const fetchPrints = async () => {
     setLoading(true);
@@ -39,14 +43,20 @@ const ScannerView = () => {
   }, [minSize, sortBy]);
 
   const visiblePrints = useMemo(
-    () => filterScannerPrints(prints, { side: sideFilter, minConfidence }),
-    [prints, sideFilter, minConfidence]
+    () => filterScannerPrints(prints, {
+      side: sideFilter,
+      minConfidence,
+      query: symbolQuery,
+      unusualOnly,
+      minAbsZScore: DEFAULT_UNUSUAL_ZSCORE,
+    }),
+    [prints, sideFilter, minConfidence, symbolQuery, unusualOnly]
   );
 
   return (
     <div className="space-y-4">
       {/* Controls */}
-      <div className="flex items-center gap-4 bg-dark-800 rounded-xl p-4">
+      <div className="flex flex-wrap items-center gap-3 bg-dark-800 rounded-xl p-4">
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
           <span className="text-sm text-gray-400">Min Size:</span>
@@ -70,6 +80,15 @@ const ScannerView = () => {
             <option value="price">Price</option>
           </select>
         </div>
+        <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+          <Search size={14} className="text-gray-500" />
+          <input
+            value={symbolQuery}
+            onChange={(event) => setSymbolQuery(event.target.value)}
+            placeholder="Symbol"
+            className="min-w-0 flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
         <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
           {SCANNER_SIDE_FILTERS.map((side) => (
             <button
@@ -100,6 +119,16 @@ const ScannerView = () => {
           <span className="w-10 text-right font-mono text-xs text-accent-cyan">
             {Math.round(minConfidence * 100)}%
           </span>
+        </label>
+        <label className="flex items-center gap-2 rounded-lg bg-dark-900/70 px-2.5 py-1.5 text-sm text-gray-300">
+          <input
+            type="checkbox"
+            checked={unusualOnly}
+            onChange={(event) => setUnusualOnly(event.target.checked)}
+            className="h-4 w-4 rounded border-dark-600 bg-dark-700 accent-accent-yellow"
+            style={{ accentColor: 'var(--color-accent-yellow)' }}
+          />
+          <span>Unusual |Z| &ge; {DEFAULT_UNUSUAL_ZSCORE}</span>
         </label>
         <span className="text-xs text-gray-500">
           {visiblePrints.length}/{prints.length} rows
@@ -171,6 +200,8 @@ const AlertsView = () => {
   const [loading, setLoading] = useState(true);
   const [stateFilter, setStateFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
+  const [alertQuery, setAlertQuery] = useState('');
+  const [actionableOnly, setActionableOnly] = useState(false);
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -209,9 +240,15 @@ const AlertsView = () => {
   }, []);
 
   const visibleAlerts = useMemo(
-    () => filterAlerts(alerts, { state: stateFilter, severity: severityFilter }),
-    [alerts, stateFilter, severityFilter]
+    () => filterAlerts(alerts, {
+      state: stateFilter,
+      severity: severityFilter,
+      query: alertQuery,
+      actionableOnly,
+    }),
+    [alerts, stateFilter, severityFilter, alertQuery, actionableOnly]
   );
+  const triageSummary = useMemo(() => summarizeAlertTriage(alerts), [alerts]);
 
   const stateIcons = {
     new: <AlertTriangle size={14} className="text-yellow-400" />,
@@ -229,6 +266,20 @@ const AlertsView = () => {
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Needs Action', triageSummary.actionable, triageSummary.tone === 'urgent' ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200'],
+          ['Critical Open', triageSummary.criticalOpen, 'border-red-500/30 bg-red-500/10 text-red-200'],
+          ['Route Failures', triageSummary.failedRoutes, 'border-orange-500/30 bg-orange-500/10 text-orange-200'],
+          ['Snoozed', triageSummary.snoozed, 'border-gray-500/30 bg-gray-500/10 text-gray-200'],
+        ].map(([label, value, toneClass]) => (
+          <div key={label} className={`rounded-xl border p-4 ${toneClass}`}>
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+          </div>
+        ))}
+      </div>
+
       <div className="space-y-3 bg-dark-800 rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-4">
           <Activity size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
@@ -237,6 +288,16 @@ const AlertsView = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+            <Search size={14} className="text-gray-500" />
+            <input
+              value={alertQuery}
+              onChange={(event) => setAlertQuery(event.target.value)}
+              placeholder="Search symbol, type, channel, route"
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
+            />
+          </label>
+
           <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
             {ALERT_STATE_FILTERS.map((state) => (
               <button
@@ -270,6 +331,17 @@ const AlertsView = () => {
               </button>
             ))}
           </div>
+
+          <label className="flex items-center gap-2 rounded-lg bg-dark-900/70 px-2.5 py-1.5 text-sm text-gray-300">
+            <input
+              type="checkbox"
+              checked={actionableOnly}
+              onChange={(event) => setActionableOnly(event.target.checked)}
+              className="h-4 w-4 rounded border-dark-600 bg-dark-700 accent-accent-yellow"
+              style={{ accentColor: 'var(--color-accent-yellow)' }}
+            />
+            <span>Needs action</span>
+          </label>
         </div>
       </div>
 
@@ -343,8 +415,15 @@ const WatchlistView = () => {
   const [draftSymbols, setDraftSymbols] = useState('');
   const [formError, setFormError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [watchlistQuery, setWatchlistQuery] = useState('');
+  const [watchlistSort, setWatchlistSort] = useState('newest');
 
   const previewSymbols = useMemo(() => parseWatchlistSymbols(draftSymbols), [draftSymbols]);
+  const visibleWatchlists = useMemo(
+    () => filterWatchlists(watchlists, { query: watchlistQuery, sortBy: watchlistSort }),
+    [watchlists, watchlistQuery, watchlistSort]
+  );
+  const watchlistSummary = useMemo(() => summarizeWatchlists(watchlists), [watchlists]);
 
   useEffect(() => {
     const fetchWatchlists = async () => {
@@ -393,10 +472,45 @@ const WatchlistView = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4 bg-dark-800 rounded-xl p-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Lists', watchlistSummary.listCount],
+          ['Unique Symbols', watchlistSummary.uniqueSymbolCount],
+          ['Saved Filters', watchlistSummary.filterCount],
+          ['Largest List', watchlistSummary.largestList.symbolCount],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-200">
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+            {label === 'Largest List' && (
+              <div className="mt-1 truncate text-xs text-current/70">{watchlistSummary.largestList.name}</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 bg-dark-800 rounded-xl p-4">
         <Zap size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
         <span className="text-white font-medium">Watchlists</span>
-        <span className="text-xs text-gray-500">{watchlists.length} lists</span>
+        <span className="text-xs text-gray-500">{visibleWatchlists.length}/{watchlists.length} lists</span>
+        <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+          <Search size={14} className="text-gray-500" />
+          <input
+            value={watchlistQuery}
+            onChange={(event) => setWatchlistQuery(event.target.value)}
+            placeholder="Search list, owner, or symbol"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+        <select
+          value={watchlistSort}
+          onChange={(event) => setWatchlistSort(event.target.value)}
+          className="rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 text-sm text-white outline-none focus:border-accent-cyan"
+        >
+          <option value="newest">Newest</option>
+          <option value="name">Name</option>
+          <option value="symbol_count">Most symbols</option>
+        </select>
         <button
           type="button"
           onClick={() => {
@@ -472,11 +586,13 @@ const WatchlistView = () => {
           <div className="md:col-span-3 bg-dark-800 rounded-xl p-8 text-center text-gray-500">
             Loading...
           </div>
-        ) : watchlists.length === 0 ? (
+        ) : visibleWatchlists.length === 0 ? (
           <div className="md:col-span-3 bg-dark-800 rounded-xl p-8 text-center text-gray-500">
-            No watchlists yet. Create one for the symbols you are actively reviewing.
+            {watchlists.length === 0
+              ? 'No watchlists yet. Create one for the symbols you are actively reviewing.'
+              : 'No watchlists match the current search.'}
           </div>
-        ) : watchlists.map((wl) => (
+        ) : visibleWatchlists.map((wl) => (
           <div key={wl.id} className="bg-dark-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-medium text-white">{wl.name}</h3>
@@ -510,6 +626,8 @@ const HealthView = () => {
   const [health, setHealth] = useState(null);
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sourceQuery, setSourceQuery] = useState('');
+  const [sourceStatus, setSourceStatus] = useState('all');
 
   useEffect(() => {
     const fetchHealth = async () => {
@@ -538,6 +656,8 @@ const HealthView = () => {
   }
 
   const healthSummary = summarizeHealthStatus(health, sources);
+  const sourceSummary = summarizeDataSources(sources);
+  const visibleSources = filterDataSources(sources, { query: sourceQuery, status: sourceStatus });
 
   return (
     <div className="space-y-4">
@@ -576,6 +696,23 @@ const HealthView = () => {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Online', `${sourceSummary.onlinePct}%`],
+          ['Events', sourceSummary.totalEvents.toLocaleString()],
+          ['Avg Lag', `${sourceSummary.averageLagMs}ms`],
+          ['Worst Lag', `${sourceSummary.worstLag.feed_lag_ms}ms`],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-blue-200">
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+            {label === 'Worst Lag' && (
+              <div className="mt-1 truncate text-xs text-current/70">{sourceSummary.worstLag.name}</div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* Health Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-dark-800 rounded-xl p-4">
@@ -602,9 +739,35 @@ const HealthView = () => {
 
       {/* Connectors */}
       <div className="bg-dark-800 rounded-xl p-4">
-        <h3 className="font-medium text-white mb-4">Data Connectors</h3>
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <h3 className="font-medium text-white">Data Connectors</h3>
+          <span className="text-xs text-gray-500">{visibleSources.length}/{sources.length} connectors</span>
+          <label className="ml-auto flex min-w-[220px] items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+            <Search size={14} className="text-gray-500" />
+            <input
+              value={sourceQuery}
+              onChange={(event) => setSourceQuery(event.target.value)}
+              placeholder="Search source or provider"
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
+            />
+          </label>
+          <select
+            value={sourceStatus}
+            onChange={(event) => setSourceStatus(event.target.value)}
+            className="rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 text-sm text-white outline-none focus:border-accent-cyan"
+          >
+            <option value="all">All status</option>
+            <option value="online">Online</option>
+            <option value="degraded">Degraded</option>
+            <option value="offline">Offline</option>
+          </select>
+        </div>
         <div className="space-y-2">
-          {sources.map((src) => (
+          {visibleSources.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-dark-600 bg-dark-900/40 p-4 text-sm text-gray-500">
+              No connectors match the current filters.
+            </div>
+          ) : visibleSources.map((src) => (
             <div key={src.id} className="flex items-center justify-between p-3 bg-dark-700 rounded-lg">
               <div className="flex items-center gap-3">
                 <span className={`w-2 h-2 rounded-full ${

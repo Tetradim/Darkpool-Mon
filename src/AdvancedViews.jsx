@@ -1,11 +1,21 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Flame, Clock, Pause, Play, FastForward, ChevronLeft, ChevronRight, BarChart2, Layers, Grid, Zap } from 'lucide-react';
+import { Flame, Clock, Pause, Play, FastForward, Search, BarChart2, Layers, Grid, Zap } from 'lucide-react';
+import {
+  filterAdminApiKeys,
+  filterAdminAuditLogs,
+  filterRetentionPolicies,
+  summarizeAdminState,
+} from './adminFilters';
+import { filterHeatmapCells, summarizeHeatmapCells } from './flowMapFilters';
+import { REPLAY_SIDE_FILTERS, filterReplayEvents, summarizeReplayEvents } from './replayFilters';
 
 // Flow Map Heatmap Component
 const FlowMapView = () => {
   const [heatmap, setHeatmap] = useState([]);
   const [buckets, setBuckets] = useState(13);
   const [loading, setLoading] = useState(true);
+  const [symbolQuery, setSymbolQuery] = useState('');
+  const [minScore, setMinScore] = useState(0);
 
   const fetchHeatmap = async () => {
     setLoading(true);
@@ -25,11 +35,17 @@ const FlowMapView = () => {
     return () => clearInterval(interval);
   }, [buckets]);
 
+  const visibleHeatmap = useMemo(
+    () => filterHeatmapCells(heatmap, { query: symbolQuery, minScore }),
+    [heatmap, symbolQuery, minScore]
+  );
+  const heatmapSummary = useMemo(() => summarizeHeatmapCells(visibleHeatmap), [visibleHeatmap]);
+
   // Group by symbol for grid
   const symbols = useMemo(() => {
-    const syms = [...new Set(heatmap.map(h => h.symbol))];
+    const syms = [...new Set(visibleHeatmap.map(h => h.symbol))];
     return syms;
-  }, [heatmap]);
+  }, [visibleHeatmap]);
 
   const getColor = (score) => {
     if (score > 70) return 'bg-red-500';
@@ -40,9 +56,32 @@ const FlowMapView = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4 bg-dark-800 rounded-xl p-4">
+      <div className="flex flex-wrap items-center gap-4 bg-dark-800 rounded-xl p-4">
         <Flame size={16} className="text-accent-cyan" style={{ color: 'var(--color-accent)' }} />
         <span className="text-white font-medium">Flow Map</span>
+        <span className="text-xs text-gray-500">{visibleHeatmap.length}/{heatmap.length} cells</span>
+        <label className="flex min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+          <Search size={14} className="text-gray-500" />
+          <input
+            value={symbolQuery}
+            onChange={(event) => setSymbolQuery(event.target.value)}
+            placeholder="Search symbol"
+            className="min-w-0 flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Score</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={minScore}
+            onChange={(event) => setMinScore(Number(event.target.value))}
+            className="w-24 accent-accent-cyan"
+          />
+          <span className="w-8 text-right font-mono text-xs text-accent-cyan">{minScore}</span>
+        </label>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-sm text-gray-400">Buckets:</span>
           <input
@@ -57,6 +96,25 @@ const FlowMapView = () => {
         <button onClick={fetchHeatmap} className="px-3 py-1 bg-dark-700 rounded text-sm hover:bg-dark-600">
           Refresh
         </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Symbols', heatmapSummary.activeSymbols],
+          ['Hotspots', heatmapSummary.hotspotCount],
+          ['Volume', `${(heatmapSummary.totalVolume / 1000000).toFixed(1)}M`],
+          ['Top Flow', heatmapSummary.topSymbol.symbol],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-orange-200">
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+            {label === 'Top Flow' && (
+              <div className="mt-1 text-xs text-current/70">
+                score {heatmapSummary.topSymbol.score}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* Heatmap Grid */}
@@ -76,11 +134,17 @@ const FlowMapView = () => {
               </tr>
             </thead>
             <tbody>
-              {symbols.map(sym => (
+              {symbols.length === 0 ? (
+                <tr>
+                  <td colSpan={buckets + 1} className="px-2 py-6 text-center text-gray-500">
+                    No heatmap cells match the current filters
+                  </td>
+                </tr>
+              ) : symbols.map(sym => (
                 <tr key={sym}>
                   <td className="px-2 py-1 font-mono text-white text-sm">{sym}</td>
                   {Array.from({ length: buckets }, (_, bucket) => {
-                    const cell = heatmap.find(h => h.symbol === sym && h.bucket === bucket);
+                    const cell = visibleHeatmap.find(h => h.symbol === sym && h.bucket === bucket);
                     return (
                       <td key={bucket} className="px-0.5 py-0.5">
                         <div
@@ -131,6 +195,9 @@ const ReplayView = () => {
   const [speed, setSpeed] = useState(1);
   const [startTime, setStartTime] = useState('09:30');
   const [endTime, setEndTime] = useState('16:00');
+  const [symbolQuery, setSymbolQuery] = useState('');
+  const [sideFilter, setSideFilter] = useState('ALL');
+  const [minSize, setMinSize] = useState(0);
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -148,21 +215,31 @@ const ReplayView = () => {
     fetchEvents();
   }, [startTime, endTime]);
 
+  const visibleEvents = useMemo(
+    () => filterReplayEvents(events, { query: symbolQuery, side: sideFilter, minSize }),
+    [events, symbolQuery, sideFilter, minSize]
+  );
+  const replaySummary = useMemo(() => summarizeReplayEvents(visibleEvents), [visibleEvents]);
+
   // Playback controls
   useEffect(() => {
-    if (!isPlaying || events.length === 0) return;
+    if (!isPlaying || visibleEvents.length === 0) return;
     
     const interval = setInterval(() => {
-      setCurrentIndex(i => (i + 1) % events.length);
+      setCurrentIndex(i => (i + 1) % visibleEvents.length);
     }, 1000 / speed);
 
     return () => clearInterval(interval);
-  }, [isPlaying, speed, events.length]);
+  }, [isPlaying, speed, visibleEvents.length]);
 
   const handleSeek = (index) => {
     setCurrentIndex(index);
     setIsPlaying(false);
   };
+
+  useEffect(() => {
+    setCurrentIndex((index) => Math.min(index, Math.max(visibleEvents.length - 1, 0)));
+  }, [visibleEvents.length]);
 
   return (
     <div className="space-y-4">
@@ -191,6 +268,25 @@ const ReplayView = () => {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['Events', replaySummary.totalEvents],
+          ['Notional', `$${(replaySummary.totalNotional / 1000000).toFixed(1)}M`],
+          ['Buy / Sell', `${replaySummary.buyCount} / ${replaySummary.sellCount}`],
+          ['Top Symbol', replaySummary.topSymbol.symbol],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-purple-200">
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+            {label === 'Top Symbol' && (
+              <div className="mt-1 text-xs text-current/70">
+                {replaySummary.topSymbol.count} events
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* Playback Controls */}
       <div className="flex items-center gap-2 bg-dark-800 rounded-xl p-3">
         <button
@@ -208,7 +304,7 @@ const ReplayView = () => {
           <input
             type="range"
             min={0}
-            max={events.length - 1}
+            max={Math.max(visibleEvents.length - 1, 0)}
             value={currentIndex}
             onChange={(e) => handleSeek(Number(e.target.value))}
             className="w-full"
@@ -216,7 +312,7 @@ const ReplayView = () => {
         </div>
         
         <div className="text-sm font-mono text-gray-400">
-          {currentIndex + 1} / {events.length}
+          {visibleEvents.length === 0 ? 0 : currentIndex + 1} / {visibleEvents.length}
         </div>
         
         <select
@@ -230,6 +326,47 @@ const ReplayView = () => {
           <option value={5}>5x</option>
           <option value={10}>10x</option>
         </select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 bg-dark-800 rounded-xl p-3">
+        <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+          <Search size={14} className="text-gray-500" />
+          <input
+            value={symbolQuery}
+            onChange={(event) => setSymbolQuery(event.target.value)}
+            placeholder="Search symbol"
+            className="min-w-0 flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+
+        <div className="flex items-center gap-1 rounded-lg bg-dark-900/70 p-1">
+          {REPLAY_SIDE_FILTERS.map((side) => (
+            <button
+              key={side}
+              type="button"
+              onClick={() => setSideFilter(side)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-all ${
+                sideFilter === side
+                  ? 'bg-dark-700 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {side}
+            </button>
+          ))}
+        </div>
+
+        <label className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Min size</span>
+          <input
+            type="number"
+            value={minSize}
+            min={0}
+            step={1000}
+            onChange={(event) => setMinSize(Number(event.target.value))}
+            className="w-28 rounded bg-dark-700 px-2 py-1 font-mono text-sm text-white"
+          />
+        </label>
       </div>
 
       {/* Event Stream */}
@@ -247,9 +384,9 @@ const ReplayView = () => {
           <tbody>
             {loading ? (
               <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-500">Loading...</td></tr>
-            ) : events.length === 0 ? (
+            ) : visibleEvents.length === 0 ? (
               <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-500">No events</td></tr>
-            ) : events.slice(0, 100).map((evt, idx) => (
+            ) : visibleEvents.slice(0, 100).map((evt, idx) => (
               <tr 
                 key={idx} 
                 className={`border-t border-dark-700 ${idx === currentIndex ? 'bg-accent-cyan/20' : ''}`}
@@ -278,6 +415,9 @@ const AdminView = () => {
   const [retentionPolicies, setRetentionPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('api-keys');
+  const [adminQuery, setAdminQuery] = useState('');
+  const [keyStatus, setKeyStatus] = useState('all');
+  const [retentionMode, setRetentionMode] = useState('all');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -304,15 +444,55 @@ const AdminView = () => {
     { id: 'audit', label: 'Audit Log' },
     { id: 'retention', label: 'Retention' },
   ];
+  const adminSummary = summarizeAdminState({ apiKeys, auditLogs, retentionPolicies });
+  const visibleApiKeys = filterAdminApiKeys(apiKeys || [], { query: adminQuery, status: keyStatus });
+  const visibleAuditLogs = filterAdminAuditLogs(auditLogs || [], { query: adminQuery });
+  const visibleRetentionPolicies = filterRetentionPolicies(retentionPolicies || [], {
+    query: adminQuery,
+    mode: retentionMode,
+  });
+  const activeCount = activeTab === 'api-keys'
+    ? visibleApiKeys.length
+    : activeTab === 'audit'
+      ? visibleAuditLogs.length
+      : visibleRetentionPolicies.length;
+  const totalCount = activeTab === 'api-keys'
+    ? apiKeys.length
+    : activeTab === 'audit'
+      ? auditLogs.length
+      : retentionPolicies.length;
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          ['API Keys', adminSummary.keyCount],
+          ['Active Keys', adminSummary.activeKeyCount],
+          ['Audit Logs', adminSummary.auditLogCount],
+          ['Auto Delete', adminSummary.autoDeletePolicyCount],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-200">
+            <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
+            {label === 'Audit Logs' && adminSummary.latestAuditAt && (
+              <div className="mt-1 text-xs text-current/70">
+                latest {new Date(adminSummary.latestAuditAt).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* Tabs */}
-      <div className="flex items-center gap-1 bg-dark-800 rounded-xl p-1">
+      <div className="flex flex-wrap items-center gap-3 bg-dark-800 rounded-xl p-3">
+        <div className="flex items-center gap-1 rounded-xl bg-dark-900/70 p-1">
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              setActiveTab(tab.id);
+              setAdminQuery('');
+            }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab.id
                 ? 'bg-dark-700 text-white'
@@ -322,6 +502,39 @@ const AdminView = () => {
             {tab.label}
           </button>
         ))}
+        </div>
+        <span className="text-xs text-gray-500">{activeCount}/{totalCount} rows</span>
+        <label className="ml-auto flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 focus-within:border-accent-cyan">
+          <Search size={14} className="text-gray-500" />
+          <input
+            value={adminQuery}
+            onChange={(event) => setAdminQuery(event.target.value)}
+            placeholder="Search current tab"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+        {activeTab === 'api-keys' && (
+          <select
+            value={keyStatus}
+            onChange={(event) => setKeyStatus(event.target.value)}
+            className="rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 text-sm text-white outline-none focus:border-accent-cyan"
+          >
+            <option value="all">All keys</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        )}
+        {activeTab === 'retention' && (
+          <select
+            value={retentionMode}
+            onChange={(event) => setRetentionMode(event.target.value)}
+            className="rounded-lg border border-dark-600 bg-dark-900/70 px-3 py-1.5 text-sm text-white outline-none focus:border-accent-cyan"
+          >
+            <option value="all">All policies</option>
+            <option value="auto">Auto-delete</option>
+            <option value="manual">Manual</option>
+          </select>
+        )}
       </div>
 
       {/* API Keys */}
@@ -334,7 +547,11 @@ const AdminView = () => {
             </button>
           </div>
           <div className="space-y-2">
-            {(apiKeys || []).map(key => (
+            {visibleApiKeys.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-dark-600 bg-dark-900/40 p-4 text-sm text-gray-500">
+                No API keys match the current filters.
+              </div>
+            ) : visibleApiKeys.map(key => (
               <div key={key.id} className="flex items-center justify-between p-3 bg-dark-700 rounded-lg">
                 <div>
                   <div className="text-white font-medium">{key.provider}</div>
@@ -357,7 +574,11 @@ const AdminView = () => {
         <div className="bg-dark-800 rounded-xl p-4">
           <h3 className="text-white font-medium mb-4">Audit Log</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {(auditLogs || []).map(log => (
+            {visibleAuditLogs.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-dark-600 bg-dark-900/40 p-4 text-sm text-gray-500">
+                No audit logs match the current search.
+              </div>
+            ) : visibleAuditLogs.map(log => (
               <div key={log.id} className="flex items-center justify-between p-2 bg-dark-700 rounded text-sm">
                 <div className="flex items-center gap-3">
                   <span className="text-gray-400 text-xs">{new Date(log.timestamp).toLocaleTimeString()}</span>
@@ -381,7 +602,11 @@ const AdminView = () => {
             </button>
           </div>
           <div className="space-y-2">
-            {(retentionPolicies || []).map(policy => (
+            {visibleRetentionPolicies.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-dark-600 bg-dark-900/40 p-4 text-sm text-gray-500">
+                No retention policies match the current filters.
+              </div>
+            ) : visibleRetentionPolicies.map(policy => (
               <div key={policy.id} className="flex items-center justify-between p-3 bg-dark-700 rounded-lg">
                 <div>
                   <div className="text-white font-medium">{policy.name}</div>

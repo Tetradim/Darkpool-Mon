@@ -21,13 +21,20 @@ const TONES = {
 
 const pluralize = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
 
+const getSourceStatusGroup = (source) => {
+  const status = String(source?.status || 'offline').toLowerCase();
+  if (ONLINE_STATUSES.has(status)) return 'online';
+  if (DEGRADED_STATUSES.has(status)) return 'degraded';
+  return 'offline';
+};
+
 const countConnectors = (sources = []) => {
   return sources.reduce(
     (acc, source) => {
-      const status = String(source?.status || 'offline').toLowerCase();
-      if (ONLINE_STATUSES.has(status)) {
+      const statusGroup = getSourceStatusGroup(source);
+      if (statusGroup === 'online') {
         acc.online += 1;
-      } else if (DEGRADED_STATUSES.has(status)) {
+      } else if (statusGroup === 'degraded') {
         acc.degraded += 1;
       } else {
         acc.offline += 1;
@@ -37,6 +44,50 @@ const countConnectors = (sources = []) => {
     },
     { online: 0, degraded: 0, offline: 0, total: 0 }
   );
+};
+
+const matchesSourceQuery = (source, query) => {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [source?.name, source?.provider, source?.status].some((value) => {
+    return String(value || '').toLowerCase().includes(normalizedQuery);
+  });
+};
+
+export const filterDataSources = (sources = [], filters = {}) => {
+  const normalizedStatus = String(filters.status || 'all').toLowerCase();
+  const allowedStatus = ['all', 'online', 'degraded', 'offline'].includes(normalizedStatus)
+    ? normalizedStatus
+    : 'all';
+
+  return sources.filter((source) => {
+    const statusMatches = allowedStatus === 'all' || getSourceStatusGroup(source) === allowedStatus;
+    return statusMatches && matchesSourceQuery(source, filters.query);
+  });
+};
+
+export const summarizeDataSources = (sources = []) => {
+  const connectorCounts = countConnectors(sources);
+  const totalEvents = sources.reduce((acc, source) => acc + Number(source?.events_received || 0), 0);
+  const totalLag = sources.reduce((acc, source) => acc + Number(source?.feed_lag_ms || 0), 0);
+  const averageLagMs = sources.length > 0 ? Math.round(totalLag / sources.length) : 0;
+  const worstSource = sources
+    .slice()
+    .sort((left, right) => Number(right?.feed_lag_ms || 0) - Number(left?.feed_lag_ms || 0))[0];
+  const onlinePct = connectorCounts.total > 0
+    ? Math.round((connectorCounts.online / connectorCounts.total) * 1000) / 10
+    : 0;
+
+  return {
+    totalEvents,
+    averageLagMs,
+    worstLag: {
+      name: worstSource?.name || 'N/A',
+      feed_lag_ms: Number(worstSource?.feed_lag_ms || 0),
+    },
+    onlinePct,
+    tone: connectorCounts.offline > 0 ? 'critical' : connectorCounts.degraded > 0 ? 'degraded' : 'healthy',
+  };
 };
 
 export const summarizeHealthStatus = (health = {}, sources = []) => {

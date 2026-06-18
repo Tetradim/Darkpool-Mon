@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { summarizeHealthStatus } from './healthStatus';
+import { filterDataSources, summarizeDataSources, summarizeHealthStatus } from './healthStatus';
 
 describe('summarizeHealthStatus', () => {
   it('reports healthy when metrics and connectors are within normal bounds', () => {
@@ -72,5 +72,42 @@ describe('summarizeHealthStatus', () => {
     expect(summary.reasons).toContain('14 parser errors');
     expect(summary.reasons).toContain('CPU 96%');
     expect(summary.reasons).toContain('1 connector offline');
+  });
+});
+
+describe('filterDataSources', () => {
+  const sources = [
+    { id: 'finra', name: 'FINRA ADF', provider: 'FINRA', status: 'connected', feed_lag_ms: 40 },
+    { id: 'polygon', name: 'Polygon Trades', provider: 'Polygon', status: 'stale', feed_lag_ms: 900 },
+    { id: 'sip', name: 'SIP/NBBO', provider: 'CTA', status: 'error', feed_lag_ms: 2300 },
+  ];
+
+  it('filters data sources by normalized status group', () => {
+    expect(filterDataSources(sources, { status: 'online' }).map((source) => source.id)).toEqual(['finra']);
+    expect(filterDataSources(sources, { status: 'degraded' }).map((source) => source.id)).toEqual(['polygon']);
+    expect(filterDataSources(sources, { status: 'offline' }).map((source) => source.id)).toEqual(['sip']);
+  });
+
+  it('filters data sources by case-insensitive query across name and provider', () => {
+    expect(filterDataSources(sources, { query: 'poly' }).map((source) => source.id)).toEqual(['polygon']);
+    expect(filterDataSources(sources, { query: 'cta' }).map((source) => source.id)).toEqual(['sip']);
+  });
+});
+
+describe('summarizeDataSources', () => {
+  it('summarizes source throughput, lag, and worst connector', () => {
+    expect(
+      summarizeDataSources([
+        { name: 'FINRA ADF', status: 'connected', events_received: 1200, feed_lag_ms: 40 },
+        { name: 'Polygon Trades', status: 'stale', events_received: 300, feed_lag_ms: 900 },
+        { name: 'SIP/NBBO', status: 'error', events_received: 0, feed_lag_ms: 2300 },
+      ])
+    ).toEqual({
+      totalEvents: 1500,
+      averageLagMs: 1080,
+      worstLag: { name: 'SIP/NBBO', feed_lag_ms: 2300 },
+      onlinePct: 33.3,
+      tone: 'critical',
+    });
   });
 });
