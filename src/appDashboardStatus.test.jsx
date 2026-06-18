@@ -25,4 +25,12 @@ describe('Dashboard UI shortcut wiring', () => {
     expect(source).toContain('aria-label="Active dashboard filters"');
     expect(source).toContain('Clear Filters');
   });
+
+  it('summarizes the filtered live feed before listing transactions', () => {
+    expect(source).toContain('buildFeedSnapshotCards(filteredTransactions)');
+    expect(source).toContain('feedSnapshotCards.map((card)');
+    expect(source).toContain('aria-label="Filtered feed snapshot"');
+    expect(source).toContain('Showing {filteredTransactions.length} of {transactions.length} transactions');
+    expect(source).toContain('No transactions match the active filters.');
+  });
 });

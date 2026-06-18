@@ -15,6 +15,7 @@ import {
 } from './dataGenerator';
 import { getThemeStyle } from './themes';
 import { summarizeDashboardPulse } from './dashboardPulse';
+import { buildFeedSnapshotCards } from './feedSnapshot';
 import { computeZScore, rowsToCsv } from './flowEngine';
 import {
   DASHBOARD_CONTROL_DEFAULTS,
@@ -483,6 +484,10 @@ export default function App() {
 
     return baseFiltered;
   }, [transactions, selectedStock, threshold, feedSort]);
+  const feedSnapshotCards = useMemo(
+    () => buildFeedSnapshotCards(filteredTransactions),
+    [filteredTransactions]
+  );
 
   const totalVolume = transactions.reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
   const buyVolume = transactions.filter((transaction) => transaction.direction === 'BUY').reduce((acc, transaction) => acc + transaction.value / 1000000, 0);
@@ -911,7 +916,19 @@ export default function App() {
               <Zap size={20} className="text-accent-yellow" />
               Live Transaction Feed
             </h2>
-            <span className="text-xs text-gray-500">Showing {filteredTransactions.length} transactions</span>
+            <span className="text-xs text-gray-500">
+              Showing {filteredTransactions.length} of {transactions.length} transactions
+            </span>
+          </div>
+
+          <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Filtered feed snapshot">
+            {feedSnapshotCards.map((card) => (
+              <div key={card.label} className="rounded-lg border border-dark-600/70 bg-dark-900/45 px-3 py-2">
+                <div className="text-[11px] font-semibold uppercase text-gray-500">{card.label}</div>
+                <div className="mt-1 font-mono text-sm font-semibold text-white">{card.value}</div>
+                <div className="mt-1 text-[11px] text-gray-500">{card.detail}</div>
+              </div>
+            ))}
           </div>
 
           <div
@@ -919,8 +936,11 @@ export default function App() {
             className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto"
           >
             {filteredTransactions.length === 0 ? (
-              <div className="col-span-full text-center py-8 text-gray-500">
-                No transactions matching current filters
+              <div className="col-span-full rounded-lg border border-dashed border-dark-600 bg-dark-900/35 py-8 text-center text-gray-500">
+                <p>No transactions match the active filters.</p>
+                {hasCustomFilters && (
+                  <p className="mt-2 text-xs">Clear filters or lower the minimum print size to widen the tape.</p>
+                )}
               </div>
             ) : (
               filteredTransactions.slice(0, 36).map((transaction) => (
