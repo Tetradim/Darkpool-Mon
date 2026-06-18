@@ -693,26 +693,32 @@ const HealthView = () => {
   const [health, setHealth] = useState(null);
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState(null);
   const [sourceQuery, setSourceQuery] = useState('');
   const [sourceStatus, setSourceStatus] = useState('all');
 
+  const fetchHealth = async () => {
+    setLoading(true);
+    try {
+      const [healthRes, sourcesRes] = await Promise.all([
+        fetch('/health/system'),
+        fetch('/data/sources'),
+      ]);
+      if (!healthRes.ok) throw healthRes;
+      if (!sourcesRes.ok) throw sourcesRes;
+      const healthData = await healthRes.json();
+      const sourcesData = await sourcesRes.json();
+      setHealth(healthData);
+      setSources(sourcesData.sources || []);
+      setRequestError(null);
+    } catch (err) {
+      setRequestError(buildRequestFailure('System Health', err));
+      console.error('Failed to fetch health:', err);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const fetchHealth = async () => {
-      setLoading(true);
-      try {
-        const [healthRes, sourcesRes] = await Promise.all([
-          fetch('/health/system'),
-          fetch('/data/sources'),
-        ]);
-        const healthData = await healthRes.json();
-        const sourcesData = await sourcesRes.json();
-        setHealth(healthData);
-        setSources(sourcesData.sources || []);
-      } catch (err) {
-        console.error('Failed to fetch health:', err);
-      }
-      setLoading(false);
-    };
     fetchHealth();
     const interval = setInterval(fetchHealth, 5000);
     return () => clearInterval(interval);
@@ -725,9 +731,17 @@ const HealthView = () => {
   const healthSummary = summarizeHealthStatus(health, sources);
   const sourceSummary = summarizeDataSources(sources);
   const visibleSources = filterDataSources(sources, { query: sourceQuery, status: sourceStatus });
+  const healthStatus = summarizeRequestStatus({
+    label: 'System Health',
+    loading,
+    error: requestError,
+    itemCount: (health ? 1 : 0) + sources.length,
+  });
 
   return (
     <div className="space-y-4">
+      <RequestStatusBanner status={healthStatus} onRetry={fetchHealth} />
+
       <div className={`rounded-xl border p-4 ${healthSummary.toneClass}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
