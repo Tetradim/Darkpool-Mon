@@ -7,6 +7,7 @@ import {
   mergeDashboardControls,
   normalizePersistedSettings,
   parseSettingsProfile,
+  previewSettingsProfile,
   serializeSettingsProfile,
   summarizeSettingsProfile,
 } from './settingsPersistence';
@@ -156,6 +157,33 @@ describe('settings persistence helpers', () => {
 
   it('returns a readable error for invalid profile JSON', () => {
     expect(parseSettingsProfile('{bad-json')).toEqual({
+      ok: false,
+      error: 'Profile JSON could not be parsed.',
+    });
+  });
+
+  it('previews imported settings profiles before applying them', () => {
+    const preview = previewSettingsProfile(JSON.stringify({
+      settings: {
+        theme: 'MATRIX',
+        viewMode: 'health',
+        provider: 'finra',
+        selectedStock: 'NVDA',
+        threshold: 9,
+      },
+    }));
+
+    expect(preview.ok).toBe(true);
+    expect(preview.summary.slice(0, 4)).toEqual([
+      { label: 'Theme', value: 'MATRIX', detail: 'Chart style area' },
+      { label: 'Workspace', value: 'Health', detail: 'Last opened desk view' },
+      { label: 'Provider', value: 'FINRA', detail: 'External data source' },
+      { label: 'Tape Filter', value: 'NVDA / $9M+', detail: 'Latest first' },
+    ]);
+  });
+
+  it('returns preview parser errors without applying invalid profile JSON', () => {
+    expect(previewSettingsProfile('{bad-json')).toEqual({
       ok: false,
       error: 'Profile JSON could not be parsed.',
     });

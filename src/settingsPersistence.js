@@ -91,6 +91,17 @@ export const parseSettingsProfile = (profileJson) => {
   }
 };
 
+export const previewSettingsProfile = (profileJson) => {
+  const result = parseSettingsProfile(profileJson);
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    settings: result.settings,
+    summary: summarizeSettingsProfile(result.settings),
+  };
+};
+
 const filenamePart = (value, fallback) => {
   const part = String(value || fallback)
     .trim()

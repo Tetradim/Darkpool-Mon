@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   X,
   Monitor,
@@ -20,6 +20,7 @@ import {
   buildSettingsProfileFilename,
   normalizePersistedSettings,
   parseSettingsProfile,
+  previewSettingsProfile,
   serializeSettingsProfile,
   summarizeSettingsProfile,
 } from './settingsPersistence';
@@ -29,6 +30,10 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
   const [exportText, setExportText] = useState('');
   const [importText, setImportText] = useState('');
   const [profileMessage, setProfileMessage] = useState(null);
+  const importPreview = useMemo(() => {
+    const trimmed = importText.trim();
+    return trimmed ? previewSettingsProfile(trimmed) : null;
+  }, [importText]);
 
   if (!isOpen) return null;
 
@@ -265,15 +270,42 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
                     className="h-64 w-full resize-none rounded-lg border border-dark-600 bg-dark-900 p-3 font-mono text-xs text-gray-200 outline-none"
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-2 block text-sm text-gray-400">Import profile JSON</span>
-                  <textarea
-                    value={importText}
-                    onChange={(event) => setImportText(event.target.value)}
-                    placeholder='Paste {"settings": {...}} or a raw settings object.'
-                    className="h-64 w-full resize-none rounded-lg border border-dark-600 bg-dark-900 p-3 font-mono text-xs text-gray-200 outline-none focus:border-accent-cyan"
-                  />
-                </label>
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="mb-2 block text-sm text-gray-400">Import profile JSON</span>
+                    <textarea
+                      value={importText}
+                      onChange={(event) => setImportText(event.target.value)}
+                      placeholder='Paste {"settings": {...}} or a raw settings object.'
+                      className="h-64 w-full resize-none rounded-lg border border-dark-600 bg-dark-900 p-3 font-mono text-xs text-gray-200 outline-none focus:border-accent-cyan"
+                    />
+                  </label>
+
+                  {importPreview && (
+                    importPreview.ok ? (
+                      <div className="rounded-lg border border-dark-600 bg-dark-900/60 p-3">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+                          <CheckCircle size={15} className="text-green-400" />
+                          Import Preview
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {importPreview.summary.map(({ label, value, detail }) => (
+                            <div key={label} className="rounded border border-dark-700 bg-dark-800/70 p-2">
+                              <p className="text-[11px] uppercase text-gray-500">{label}</p>
+                              <p className="mt-1 font-mono text-xs text-white">{value}</p>
+                              <p className="mt-1 text-[11px] text-gray-500">{detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                        <AlertTriangle size={16} />
+                        <span>{importPreview.error}</span>
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             </div>
           )}
