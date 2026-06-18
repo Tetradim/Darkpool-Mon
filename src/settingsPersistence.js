@@ -1,7 +1,9 @@
 import { DEFAULT_SETTINGS } from './themes';
+import { VIEW_MODES } from './viewModes';
 
 export const DASHBOARD_CONTROL_DEFAULTS = {
   selectedStock: 'ALL',
+  viewMode: 'dashboard',
   timeframe: DEFAULT_SETTINGS.timeframe,
   threshold: DEFAULT_SETTINGS.minTradeSize,
   whaleThreshold: DEFAULT_SETTINGS.whaleThreshold,
@@ -20,6 +22,13 @@ const numberOrDefault = (value, fallback) => {
   return Number.isFinite(numeric) ? numeric : fallback;
 };
 
+const VIEW_MODE_IDS = new Set(VIEW_MODES.map((mode) => mode.id));
+
+const viewModeOrDefault = (value) => {
+  const normalized = String(value || DASHBOARD_CONTROL_DEFAULTS.viewMode);
+  return VIEW_MODE_IDS.has(normalized) ? normalized : DASHBOARD_CONTROL_DEFAULTS.viewMode;
+};
+
 export const normalizePersistedSettings = (persisted) => ({
   ...DEFAULT_SETTINGS,
   ...DASHBOARD_CONTROL_DEFAULTS,
@@ -31,6 +40,7 @@ export const extractDashboardControls = (settings) => {
 
   return {
     selectedStock: normalized.selectedStock || DASHBOARD_CONTROL_DEFAULTS.selectedStock,
+    viewMode: viewModeOrDefault(normalized.viewMode),
     timeframe: normalized.timeframe || DASHBOARD_CONTROL_DEFAULTS.timeframe,
     threshold: numberOrDefault(normalized.threshold, DASHBOARD_CONTROL_DEFAULTS.threshold),
     whaleThreshold: numberOrDefault(normalized.whaleThreshold, DASHBOARD_CONTROL_DEFAULTS.whaleThreshold),

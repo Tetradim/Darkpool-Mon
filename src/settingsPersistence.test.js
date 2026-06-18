@@ -18,6 +18,7 @@ describe('settings persistence helpers', () => {
       theme: 'MATRIX',
       provider: 'polygon',
       selectedStock: 'NVDA',
+      viewMode: 'health',
       threshold: 12,
       isRunning: false,
     });
@@ -28,6 +29,7 @@ describe('settings persistence helpers', () => {
       theme: 'MATRIX',
       provider: 'polygon',
       selectedStock: 'NVDA',
+      viewMode: 'health',
       threshold: 12,
       isRunning: false,
     });
@@ -77,9 +79,17 @@ describe('settings persistence helpers', () => {
   });
 
   it('extracts dashboard controls with stable fallbacks', () => {
-    expect(extractDashboardControls({ theme: 'FIRE', selectedStock: 'TSLA' })).toEqual({
+    expect(extractDashboardControls({ theme: 'FIRE', selectedStock: 'TSLA', viewMode: 'scanner' })).toEqual({
       ...DASHBOARD_CONTROL_DEFAULTS,
       selectedStock: 'TSLA',
+      viewMode: 'scanner',
+    });
+  });
+
+  it('falls back to dashboard when persisted workspace is not recognized', () => {
+    expect(extractDashboardControls({ viewMode: 'missing-workspace' })).toEqual({
+      ...DASHBOARD_CONTROL_DEFAULTS,
+      viewMode: 'dashboard',
     });
   });
 
@@ -88,6 +98,7 @@ describe('settings persistence helpers', () => {
       theme: 'FIRE',
       provider: 'polygon',
       selectedStock: 'AAPL',
+      viewMode: 'alerts',
       threshold: 5,
     }, { exportedAt: '2026-06-18T12:00:00.000Z' }));
 
@@ -101,6 +112,7 @@ describe('settings persistence helpers', () => {
         theme: 'FIRE',
         provider: 'polygon',
         selectedStock: 'AAPL',
+        viewMode: 'alerts',
         threshold: 5,
       },
     });

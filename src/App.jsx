@@ -298,7 +298,7 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [selectedStock, setSelectedStock] = useState(initialDashboardControls.selectedStock);
-  const [viewMode, setViewMode] = useState('dashboard'); // dashboard, intent, scanner, flowmap, alerts, watchlist, replay, admin, health
+  const [viewMode, setViewMode] = useState(initialDashboardControls.viewMode);
   const [timeframe, setTimeframe] = useState(initialDashboardControls.timeframe);
   const [threshold, setThreshold] = useState(initialDashboardControls.threshold);
   const [whaleThreshold, setWhaleThreshold] = useState(initialDashboardControls.whaleThreshold);
@@ -313,12 +313,13 @@ export default function App() {
   const lastAlertedTransactionId = useRef(null);
   const dashboardControls = useMemo(() => ({
     selectedStock,
+    viewMode,
     timeframe,
     threshold,
     whaleThreshold,
     feedSort,
     isRunning,
-  }), [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
+  }), [selectedStock, viewMode, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
   const currentSettings = useMemo(
     () => mergeDashboardControls(settings, dashboardControls),
     [settings, dashboardControls]
@@ -348,6 +349,7 @@ export default function App() {
 
     setSettings(normalized);
     setSelectedStock(controls.selectedStock);
+    setViewMode(controls.viewMode);
     setTimeframe(controls.timeframe);
     setThreshold(controls.threshold);
     setWhaleThreshold(controls.whaleThreshold);
