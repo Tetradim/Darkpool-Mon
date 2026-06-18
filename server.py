@@ -24,7 +24,7 @@ from darkpool.command_service import (
 from darkpool.discord_security import DiscordSignatureVerifier, SignatureVerificationError
 from darkpool.discord_formatting import summary_to_embed
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction
-from darkpool.providers import ProviderError, fetch_provider_result
+from darkpool.providers import ProviderError, fetch_provider_result, list_provider_capabilities
 from darkpool.subscriptions import SubscriptionStore
 from routes.darkpool_routes import router as darkpool_router
 
@@ -180,24 +180,29 @@ class CircuitBreaker:
     def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 30, max_backoff: int = 60):
         self.name = name
         self.failure_threshold = failure_threshold
-        self.timeout = timeout  # seconds before retry
+        self.timeout = timeout  # seconds before first retry
         self.max_backoff = max_backoff
         self.failures = 0
         self.state = CircuitState.CLOSED
         self.last_failure: datetime | None = None
-        self.backoff_seconds = 1
+        self.backoff_seconds = min(timeout, max_backoff)
     
     def record_failure(self):
+        was_open = self.state in {CircuitState.OPEN, CircuitState.HALF_OPEN}
         self.failures += 1
         self.last_failure = datetime.utcnow()
         if self.failures >= self.failure_threshold:
             self.state = CircuitState.OPEN
+            if was_open:
+                self.backoff_seconds = min(self.backoff_seconds * 2, self.max_backoff)
+            else:
+                self.backoff_seconds = min(self.timeout, self.max_backoff)
             logger.warning(f"Circuit {self.name} OPEN after {self.failures} failures")
     
     def record_success(self):
         self.failures = 0
         self.state = CircuitState.CLOSED
-        self.backoff_seconds = 1
+        self.backoff_seconds = min(self.timeout, self.max_backoff)
     
     def can_execute(self) -> bool:
         if self.state == CircuitState.CLOSED:
@@ -208,8 +213,6 @@ class CircuitBreaker:
             if elapsed >= self.backoff_seconds:
                 self.state = CircuitState.HALF_OPEN
                 return True
-            # Exponential backoff
-            self.backoff_seconds = min(self.backoff_seconds * 2, self.max_backoff)
         
         return self.state == CircuitState.HALF_OPEN
     
@@ -473,7 +476,7 @@ async def root():
         "name": "Darkpool Monitor API",
         "version": "1.0.0",
         "docs": "/docs",
-        "providers": list(PROVIDERS.keys()),
+        "providers": [provider.id for provider in list_provider_capabilities()],
     }
 
 
@@ -487,8 +490,8 @@ async def health():
 async def list_providers():
     """List available providers."""
     return [
-        {"name": p.name, "has_api_key": bool(getattr(p, "api_key", False))}
-        for p in PROVIDERS.values()
+        provider.__dict__
+        for provider in list_provider_capabilities()
     ]
 
 

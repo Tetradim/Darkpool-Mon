@@ -1,8 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Area, AreaChart
-} from 'recharts';
+import { Suspense, lazy, useState, useEffect, useRef, useMemo } from 'react';
 import {
   Activity, TrendingUp, TrendingDown, Pause, Play, Filter,
   DollarSign, Clock, BarChart3, PieChart, Zap, RefreshCw, Bell,
@@ -17,15 +13,28 @@ import {
   formatMillionsCurrency,
   formatVolume
 } from './dataGenerator';
-import { THEMES, DEFAULT_SETTINGS, CHART_TYPES, LAYOUTS, CARD_SIZES, getThemeCSS } from './themes';
-import SettingsModal from './SettingsModal';
-import OptionsDashboard from './OptionsDashboard';
-import { ScannerView, AlertsView, WatchlistView, HealthView } from './ProductionViews';
-import { TradeIntentView } from './TradeIntentView';
-import { FlowMapView, ReplayView, AdminView } from './AdvancedViews';
+import { getThemeStyle } from './themes';
 import { summarizeDashboardPulse } from './dashboardPulse';
 import { computeZScore, rowsToCsv } from './flowEngine';
+import { extractDashboardControls, mergeDashboardControls, normalizePersistedSettings } from './settingsPersistence';
 import { VIEW_MODES } from './viewModes';
+
+const lazyNamed = (loader, exportName) => lazy(() => (
+  loader().then((module) => ({ default: module[exportName] }))
+));
+
+const SettingsModal = lazy(() => import('./SettingsModal'));
+const OptionsDashboard = lazy(() => import('./OptionsDashboard'));
+const TradeIntentView = lazyNamed(() => import('./TradeIntentView'), 'TradeIntentView');
+const ScannerView = lazyNamed(() => import('./ProductionViews'), 'ScannerView');
+const AlertsView = lazyNamed(() => import('./ProductionViews'), 'AlertsView');
+const WatchlistView = lazyNamed(() => import('./ProductionViews'), 'WatchlistView');
+const HealthView = lazyNamed(() => import('./ProductionViews'), 'HealthView');
+const FlowMapView = lazyNamed(() => import('./AdvancedViews'), 'FlowMapView');
+const ReplayView = lazyNamed(() => import('./AdvancedViews'), 'ReplayView');
+const AdminView = lazyNamed(() => import('./AdvancedViews'), 'AdminView');
+const StockSparkline = lazyNamed(() => import('./DashboardCharts'), 'StockSparkline');
+const TransactionVolumeChart = lazyNamed(() => import('./DashboardCharts'), 'TransactionVolumeChart');
 
 const STORAGE_KEY = 'darkpool-monitor-settings-v3';
 const TIMEFRAME_HOURS = { '1H': 1, '4H': 4, '1D': 24 };
@@ -153,23 +162,9 @@ const StockCard = ({ stock, data, isActive, onClick, threshold = 50 }) => {
           </div>
 
           <div className="w-20 h-8">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.slice(-20)}>
-                <defs>
-                  <linearGradient id={`grad-${stock.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={isPositive ? '#22c55e' : '#ef4444'} stopOpacity={0.3} />
-                    <stop offset="100%" stopColor={isPositive ? '#22c55e' : '#ef4444'} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area
-                  type="monotone"
-                  dataKey="totalVolume"
-                  stroke={isPositive ? '#22c55e' : '#ef4444'}
-                  fill={`url(#grad-${stock.symbol})`}
-                  strokeWidth={1.5}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<div className="h-full w-full rounded bg-dark-900/60" />}>
+              <StockSparkline stock={stock} data={data} />
+            </Suspense>
           </div>
         </div>
       </div>
@@ -290,42 +285,75 @@ const FocusQueue = ({ queue }) => (
   </section>
 );
 
+const ViewFallback = () => (
+  <div className="rounded-xl border border-dark-600/80 bg-dark-800/80 p-8 text-center text-sm text-gray-400">
+    Loading workspace...
+  </div>
+);
+
 export default function App() {
-  const [isRunning, setIsRunning] = useState(true);
+  const [initialSettings] = useState(() => normalizePersistedSettings(readPersistedSettings()));
+  const [initialDashboardControls] = useState(() => extractDashboardControls(initialSettings));
+  const [isRunning, setIsRunning] = useState(initialDashboardControls.isRunning);
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [selectedStock, setSelectedStock] = useState('ALL');
+  const [selectedStock, setSelectedStock] = useState(initialDashboardControls.selectedStock);
   const [viewMode, setViewMode] = useState('dashboard'); // dashboard, intent, scanner, flowmap, alerts, watchlist, replay, admin, health
-  const [timeframe, setTimeframe] = useState('1H');
-  const [threshold, setThreshold] = useState(1);
-  const [whaleThreshold, setWhaleThreshold] = useState(50); // Default 50K shares for whale alerts
-  const [settings, setSettings] = useState(() => {
-    return { ...DEFAULT_SETTINGS, ...readPersistedSettings() };
-  });
+  const [timeframe, setTimeframe] = useState(initialDashboardControls.timeframe);
+  const [threshold, setThreshold] = useState(initialDashboardControls.threshold);
+  const [whaleThreshold, setWhaleThreshold] = useState(initialDashboardControls.whaleThreshold);
+  const [settings, setSettings] = useState(initialSettings);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [feedSort, setFeedSort] = useState('LATEST');
+  const [feedSort, setFeedSort] = useState(initialDashboardControls.feedSort);
   const [chartData, setChartData] = useState({});
   const [stockPrices, setStockPrices] = useState(() => createInitialStockPrices());
   const [newTransactionId, setNewTransactionId] = useState(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const feedRef = useRef(null);
   const lastAlertedTransactionId = useRef(null);
+  const dashboardControls = useMemo(() => ({
+    selectedStock,
+    timeframe,
+    threshold,
+    whaleThreshold,
+    feedSort,
+    isRunning,
+  }), [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
+  const currentSettings = useMemo(
+    () => mergeDashboardControls(settings, dashboardControls),
+    [settings, dashboardControls]
+  );
+
+  const appThemeStyle = useMemo(() => ({
+    ...getThemeStyle(settings.theme),
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text)',
+  }), [settings.theme]);
 
   useEffect(() => {
-    const settings = readPersistedSettings();
-    if (Object.keys(settings).length > 0) {
-      setSelectedStock(settings.selectedStock || 'ALL');
-      setTimeframe(settings.timeframe || '1H');
-      setThreshold(settings.threshold || 1);
-      setWhaleThreshold(settings.whaleThreshold || 50);
-      setFeedSort(settings.feedSort || 'LATEST');
-      setIsRunning(typeof settings.isRunning === 'boolean' ? settings.isRunning : true);
-    }
-  }, []);
+    if (typeof document === 'undefined') return;
+
+    Object.entries(getThemeStyle(settings.theme)).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(key, value);
+    });
+  }, [settings.theme]);
 
   useEffect(() => {
-    writePersistedSettings({ selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning });
-  }, [selectedStock, timeframe, threshold, whaleThreshold, feedSort, isRunning]);
+    writePersistedSettings(currentSettings);
+  }, [currentSettings]);
+
+  const handleSettingsChange = (newSettings) => {
+    const normalized = normalizePersistedSettings(newSettings);
+    const controls = extractDashboardControls(normalized);
+
+    setSettings(normalized);
+    setSelectedStock(controls.selectedStock);
+    setTimeframe(controls.timeframe);
+    setThreshold(controls.threshold);
+    setWhaleThreshold(controls.whaleThreshold);
+    setFeedSort(controls.feedSort);
+    setIsRunning(controls.isRunning);
+  };
 
   useEffect(() => {
     setChartData(createInitialChartData(timeframe));
@@ -454,7 +482,7 @@ export default function App() {
     })) || [];
 
   return (
-    <div className="min-h-screen bg-dark-900 p-4 lg:p-6">
+    <div className="min-h-screen p-4 lg:p-6" style={appThemeStyle}>
       <header className="mb-6 grid gap-4 xl:grid-cols-[minmax(260px,auto)_1fr_auto] xl:items-center">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-accent-cyan to-accent-purple flex items-center justify-center">
@@ -662,24 +690,28 @@ export default function App() {
       )}
 
       {/* Main Content Based on View Mode */}
-      {viewMode === 'options' ? (
-        <OptionsDashboard settings={settings} />
-      ) : viewMode === 'intent' ? (
-        <TradeIntentView />
-      ) : viewMode === 'scanner' ? (
-        <ScannerView />
-      ) : viewMode === 'alerts' ? (
-        <AlertsView />
-      ) : viewMode === 'watchlist' ? (
-        <WatchlistView />
-      ) : viewMode === 'health' ? (
-        <HealthView />
-      ) : viewMode === 'flowmap' ? (
-        <FlowMapView />
-      ) : viewMode === 'replay' ? (
-        <ReplayView />
-      ) : viewMode === 'admin' ? (
-        <AdminView />
+      {viewMode !== 'dashboard' ? (
+        <Suspense fallback={<ViewFallback />}>
+          {viewMode === 'options' ? (
+            <OptionsDashboard settings={currentSettings} />
+          ) : viewMode === 'intent' ? (
+            <TradeIntentView />
+          ) : viewMode === 'scanner' ? (
+            <ScannerView />
+          ) : viewMode === 'alerts' ? (
+            <AlertsView />
+          ) : viewMode === 'watchlist' ? (
+            <WatchlistView />
+          ) : viewMode === 'health' ? (
+            <HealthView />
+          ) : viewMode === 'flowmap' ? (
+            <FlowMapView />
+          ) : viewMode === 'replay' ? (
+            <ReplayView />
+          ) : viewMode === 'admin' ? (
+            <AdminView />
+          ) : null}
+        </Suspense>
       ) : (
         <>
           <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="Session pulse">
@@ -750,32 +782,9 @@ export default function App() {
           </div>
 
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={mainChartData.length > 0 ? mainChartData : [{ name: 'No Data', buy: 0, sell: 0 }]}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#30363d" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: '#8b949e', fontSize: 12 }}
-                  axisLine={{ stroke: '#30363d' }}
-                />
-                <YAxis
-                  tick={{ fill: '#8b949e', fontSize: 12 }}
-                  axisLine={{ stroke: '#30363d' }}
-                  tickFormatter={(value) => `${value}M`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#161b22',
-                    border: '1px solid #30363d',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                  }}
-                  formatter={(value) => [`${value}M`, '']}
-                />
-                <Bar dataKey="buy" fill="#22c55e" name="Buy" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="sell" fill="#ef4444" name="Sell" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<div className="h-full w-full animate-pulse rounded-lg bg-dark-900/60" />}>
+              <TransactionVolumeChart data={mainChartData} />
+            </Suspense>
           </div>
         </div>
 
@@ -909,15 +918,16 @@ export default function App() {
         </>
       )}
 
-      <SettingsModal
-        isOpen={settingsModalOpen}
-        onClose={() => setSettingsModalOpen(false)}
-        settings={settings}
-        onSettingsChange={(newSettings) => {
-          setSettings(newSettings);
-          writePersistedSettings(newSettings);
-        }}
-      />
+      {settingsModalOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={settingsModalOpen}
+            onClose={() => setSettingsModalOpen(false)}
+            settings={currentSettings}
+            onSettingsChange={handleSettingsChange}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

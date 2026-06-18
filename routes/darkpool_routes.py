@@ -14,7 +14,7 @@ from darkpool.alerting import build_alert_candidates
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
-from darkpool.providers import ProviderError, fetch_provider_result
+from darkpool.providers import ProviderError, fetch_provider_result, get_provider_capability
 from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.trade_intent import SentinelConfirmation, TradingPreferences
 from darkpool.trade_pipeline import build_trade_intent_report
@@ -137,6 +137,12 @@ async def _fetch_legacy_otc_data(
     is_ats: bool = True,
 ) -> list[dict]:
     provider_key = provider.lower()
+    capability = get_provider_capability(provider_key)
+    if not capability:
+        raise HTTPException(400, f"Unknown provider: {provider}")
+    if not capability.runnable:
+        raise HTTPException(400, f"Provider {provider_key} is not available for execution: {capability.message}")
+
     if provider_key == "demo":
         return await _fetch_demo_otc_data(symbol)
     if provider_key == "finra":

@@ -1,0 +1,163 @@
+import { DEFAULT_SETTINGS } from './themes';
+
+export const DASHBOARD_CONTROL_DEFAULTS = {
+  selectedStock: 'ALL',
+  timeframe: DEFAULT_SETTINGS.timeframe,
+  threshold: DEFAULT_SETTINGS.minTradeSize,
+  whaleThreshold: DEFAULT_SETTINGS.whaleThreshold,
+  feedSort: 'LATEST',
+  isRunning: true,
+};
+
+const isPlainObject = (value) => (
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value)
+);
+
+const numberOrDefault = (value, fallback) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+export const normalizePersistedSettings = (persisted) => ({
+  ...DEFAULT_SETTINGS,
+  ...DASHBOARD_CONTROL_DEFAULTS,
+  ...(isPlainObject(persisted) ? persisted : {}),
+});
+
+export const extractDashboardControls = (settings) => {
+  const normalized = normalizePersistedSettings(settings);
+
+  return {
+    selectedStock: normalized.selectedStock || DASHBOARD_CONTROL_DEFAULTS.selectedStock,
+    timeframe: normalized.timeframe || DASHBOARD_CONTROL_DEFAULTS.timeframe,
+    threshold: numberOrDefault(normalized.threshold, DASHBOARD_CONTROL_DEFAULTS.threshold),
+    whaleThreshold: numberOrDefault(normalized.whaleThreshold, DASHBOARD_CONTROL_DEFAULTS.whaleThreshold),
+    feedSort: normalized.feedSort || DASHBOARD_CONTROL_DEFAULTS.feedSort,
+    isRunning: typeof normalized.isRunning === 'boolean'
+      ? normalized.isRunning
+      : DASHBOARD_CONTROL_DEFAULTS.isRunning,
+  };
+};
+
+export const mergeDashboardControls = (settings, controls) => ({
+  ...normalizePersistedSettings(settings),
+  ...extractDashboardControls({ ...settings, ...controls }),
+});
+
+export const serializeSettingsProfile = (settings, options = {}) => {
+  const exportedAt = options.exportedAt || new Date().toISOString();
+
+  return JSON.stringify(
+    {
+      app: 'Darkpool-Mon',
+      schemaVersion: 1,
+      exportedAt,
+      settings: normalizePersistedSettings(settings),
+    },
+    null,
+    2
+  );
+};
+
+export const parseSettingsProfile = (profileJson) => {
+  try {
+    const parsed = JSON.parse(profileJson);
+    if (!isPlainObject(parsed)) {
+      return { ok: false, error: 'Profile JSON must contain an object.' };
+    }
+
+    const settings = isPlainObject(parsed.settings) ? parsed.settings : parsed;
+    return {
+      ok: true,
+      settings: normalizePersistedSettings(settings),
+    };
+  } catch {
+    return {
+      ok: false,
+      error: 'Profile JSON could not be parsed.',
+    };
+  }
+};
+
+const filenamePart = (value, fallback) => {
+  const part = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return part || fallback;
+};
+
+export const buildSettingsProfileFilename = (settings = {}, date = new Date()) => {
+  const normalized = normalizePersistedSettings(settings);
+  const timestamp = date.toISOString()
+    .replace(/\.\d{3}Z$/, '')
+    .replace('T', '-')
+    .replace(/:/g, '');
+
+  return [
+    'darkpool-mon-profile',
+    filenamePart(normalized.selectedStock, 'all'),
+    filenamePart(normalized.provider, 'provider'),
+    timestamp,
+  ].join('-') + '.json';
+};
+
+const formatFeedSort = (feedSort) => (
+  String(feedSort || '').toUpperCase() === 'LARGEST' ? 'Largest first' : 'Latest first'
+);
+
+const summarizeAlertDelivery = (settings) => {
+  if (settings.soundEnabled && settings.desktopAlerts) return 'Sound + desktop';
+  if (settings.desktopAlerts) return 'Desktop only';
+  if (settings.soundEnabled) return 'Sound only';
+  return 'Muted';
+};
+
+const summarizeIntegrations = (settings) => {
+  if (settings.grafanaUrl) return 'Grafana linked';
+  if (settings.plotlyUrl) return 'Plotly linked';
+  return 'No external dashboards';
+};
+
+export const summarizeSettingsProfile = (settings = {}) => {
+  const normalized = normalizePersistedSettings(settings);
+  const threshold = numberOrDefault(normalized.threshold, DASHBOARD_CONTROL_DEFAULTS.threshold);
+  const whaleThreshold = numberOrDefault(normalized.whaleThreshold, DASHBOARD_CONTROL_DEFAULTS.whaleThreshold);
+
+  return [
+    {
+      label: 'Theme',
+      value: String(normalized.theme || DEFAULT_SETTINGS.theme).toUpperCase(),
+      detail: `Chart style ${normalized.chartType || DEFAULT_SETTINGS.chartType}`,
+    },
+    {
+      label: 'Provider',
+      value: String(normalized.provider || DEFAULT_SETTINGS.provider).toUpperCase(),
+      detail: 'External data source',
+    },
+    {
+      label: 'Tape Filter',
+      value: `${normalized.selectedStock || DASHBOARD_CONTROL_DEFAULTS.selectedStock} / $${threshold}M+`,
+      detail: formatFeedSort(normalized.feedSort),
+    },
+    {
+      label: 'Whale Gate',
+      value: `${whaleThreshold}K shares`,
+      detail: normalized.isRunning ? 'Simulation live' : 'Simulation paused',
+    },
+    {
+      label: 'Alerts',
+      value: summarizeAlertDelivery(normalized),
+      detail: normalized.discordWebhook ? 'Discord webhook configured' : 'Discord webhook not set',
+    },
+    {
+      label: 'Integrations',
+      value: summarizeIntegrations(normalized),
+      detail: normalized.plotlyUrl ? 'Plotly linked' : 'Plotly not linked',
+    },
+  ];
+};

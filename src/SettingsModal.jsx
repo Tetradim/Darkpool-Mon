@@ -1,14 +1,40 @@
 import { useState } from 'react';
-import { X, Monitor, Layout, Maximize2, Link, Activity, Bell, Globe, Info } from 'lucide-react';
-import { THEMES, CHART_TYPES, LAYOUTS, CARD_SIZES, PROVIDERS, GREEK_SYMBOLS, getThemeCSS } from './themes';
+import {
+  X,
+  Monitor,
+  Layout,
+  Maximize2,
+  Link,
+  Activity,
+  Bell,
+  Globe,
+  Info,
+  Download,
+  Upload,
+  RotateCcw,
+  CheckCircle,
+  AlertTriangle,
+} from 'lucide-react';
+import { THEMES, CHART_TYPES, LAYOUTS, CARD_SIZES, PROVIDER_OPTIONS, GREEK_SYMBOLS } from './themes';
+import {
+  buildSettingsProfileFilename,
+  normalizePersistedSettings,
+  parseSettingsProfile,
+  serializeSettingsProfile,
+  summarizeSettingsProfile,
+} from './settingsPersistence';
 
 export default function SettingsModal({ isOpen, onClose, settings, onSettingsChange }) {
   const [activeTab, setActiveTab] = useState('appearance');
+  const [exportText, setExportText] = useState('');
+  const [importText, setImportText] = useState('');
+  const [profileMessage, setProfileMessage] = useState(null);
 
   if (!isOpen) return null;
 
   const tabs = [
     { id: 'appearance', label: 'Appearance', icon: Monitor },
+    { id: 'profile', label: 'Profile', icon: Download },
     { id: 'layout', label: 'Layout', icon: Layout },
     { id: 'cards', label: 'Cards', icon: Maximize2 },
     { id: 'providers', label: 'Providers', icon: Globe },
@@ -19,6 +45,49 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
 
   const updateSetting = (key, value) => {
     onSettingsChange({ ...settings, [key]: value });
+  };
+
+  const updateProfileMessage = (type, text) => {
+    setProfileMessage({ type, text });
+  };
+
+  const exportProfile = () => {
+    setExportText(serializeSettingsProfile(settings));
+    updateProfileMessage('success', 'Profile JSON is ready to copy.');
+  };
+
+  const downloadProfile = () => {
+    const profileJson = serializeSettingsProfile(settings);
+    const blob = new Blob([profileJson], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', buildSettingsProfileFilename(settings));
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setExportText(profileJson);
+    updateProfileMessage('success', 'Profile JSON downloaded and mirrored below.');
+  };
+
+  const importProfile = () => {
+    const result = parseSettingsProfile(importText);
+    if (!result.ok) {
+      updateProfileMessage('error', result.error);
+      return;
+    }
+
+    onSettingsChange(result.settings);
+    updateProfileMessage('success', 'Profile imported into the active dashboard.');
+  };
+
+  const resetProfile = () => {
+    const resetSettings = normalizePersistedSettings({});
+    onSettingsChange(resetSettings);
+    setImportText('');
+    setExportText(serializeSettingsProfile(resetSettings));
+    updateProfileMessage('success', 'Profile reset to default operator settings.');
   };
 
   return (
@@ -117,6 +186,98 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
             </div>
           )}
 
+          {/* Profile Tab */}
+          {activeTab === 'profile' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-xl font-bold text-white">Operator Profile</h3>
+                <p className="mt-1 text-sm text-gray-400">
+                  Move dashboard controls, theme, providers, integrations, and alert preferences between sessions.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {summarizeSettingsProfile(settings).map(({ label, value, detail }) => (
+                  <div key={label} className="rounded-lg border border-dark-600 bg-dark-900/50 p-4">
+                    <p className="text-xs uppercase text-gray-500">{label}</p>
+                    <p className="mt-2 min-h-[1.5rem] font-mono text-sm text-white">{value}</p>
+                    <p className="mt-1 min-h-[1.25rem] text-xs text-gray-500">{detail}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={exportProfile}
+                  className="flex items-center gap-2 rounded-lg bg-dark-700 px-3 py-2 text-sm text-white hover:bg-dark-600"
+                >
+                  <Download size={16} />
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadProfile}
+                  className="flex items-center gap-2 rounded-lg bg-dark-700 px-3 py-2 text-sm text-white hover:bg-dark-600"
+                >
+                  <Download size={16} />
+                  Download File
+                </button>
+                <button
+                  type="button"
+                  onClick={importProfile}
+                  className="flex items-center gap-2 rounded-lg bg-accent-cyan/20 px-3 py-2 text-sm text-accent-cyan hover:bg-accent-cyan/30"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  <Upload size={16} />
+                  Apply Import
+                </button>
+                <button
+                  type="button"
+                  onClick={resetProfile}
+                  className="flex items-center gap-2 rounded-lg bg-dark-900 px-3 py-2 text-sm text-gray-300 hover:bg-dark-700 hover:text-white"
+                >
+                  <RotateCcw size={16} />
+                  Reset Defaults
+                </button>
+              </div>
+
+              {profileMessage && (
+                <div
+                  className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                    profileMessage.type === 'error'
+                      ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                      : 'border-green-500/30 bg-green-500/10 text-green-200'
+                  }`}
+                >
+                  {profileMessage.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
+                  <span>{profileMessage.text}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm text-gray-400">Exported profile JSON</span>
+                  <textarea
+                    readOnly
+                    value={exportText}
+                    placeholder="Click Export JSON to generate a portable profile."
+                    className="h-64 w-full resize-none rounded-lg border border-dark-600 bg-dark-900 p-3 font-mono text-xs text-gray-200 outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-gray-400">Import profile JSON</span>
+                  <textarea
+                    value={importText}
+                    onChange={(event) => setImportText(event.target.value)}
+                    placeholder='Paste {"settings": {...}} or a raw settings object.'
+                    className="h-64 w-full resize-none rounded-lg border border-dark-600 bg-dark-900 p-3 font-mono text-xs text-gray-200 outline-none focus:border-accent-cyan"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* Layout Tab */}
           {activeTab === 'layout' && (
             <div className="space-y-6">
@@ -178,7 +339,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
               {/* Resize Hint */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
                 <p className="text-sm text-gray-300">
-                  💡 <strong>Tip:</strong> Cards can be resized by dragging the bottom-right corner. 
+                  <strong>Tip:</strong> Cards can be resized by dragging the bottom-right corner.
                   Similar to Windows folder resizing in Sentinel Edge.
                 </p>
               </div>
@@ -193,26 +354,38 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
               <div>
                 <label className="block text-sm text-gray-400 mb-2">Select Provider</label>
                 <div className="space-y-2">
-                  {Object.entries(PROVIDERS).map(([key, value]) => (
+                  {PROVIDER_OPTIONS.map((provider) => (
                     <button
-                      key={key}
-                      onClick={() => updateSetting('provider', value)}
-                      className={`w-full p-3 rounded-lg border transition-all flex items-center justify-between ${
-                        settings.provider === value
+                      key={provider.id}
+                      type="button"
+                      disabled={!provider.runnable}
+                      onClick={() => {
+                        if (provider.runnable) updateSetting('provider', provider.id);
+                      }}
+                      className={`w-full p-3 rounded-lg border transition-all text-left ${
+                        settings.provider === provider.id
                           ? 'border-accent-cyan bg-dark-700'
                           : 'border-dark-600 hover:border-dark-500'
-                      }`}
+                      } ${provider.runnable ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
                       style={{ 
-                        borderColor: settings.provider === value ? 'var(--color-accent)' : undefined 
+                        borderColor: settings.provider === provider.id ? 'var(--color-accent)' : undefined
                       }}
                     >
-                      <span className="text-white">{key}</span>
-                      {value === 'finra' && (
-                        <span className="text-xs px-2 py-1 rounded bg-accent-green/20 text-accent-green">FREE</span>
-                      )}
-                      {(value === 'polygon' || value === 'intrinio') && (
-                        <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">API KEY</span>
-                      )}
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="text-white">{provider.label}</span>
+                        <span
+                          className={`text-xs px-2 py-1 rounded ${
+                            provider.runnable
+                              ? 'bg-accent-green/20 text-accent-green'
+                              : 'bg-yellow-500/20 text-yellow-300'
+                          }`}
+                        >
+                          {provider.badge}
+                        </span>
+                      </span>
+                      <span className="mt-2 block text-xs leading-5 text-gray-400">
+                        {provider.detail}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -351,23 +524,23 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
               
               {/* API Setup */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
-                <h4 className="text-lg font-semibold text-white mb-2">🚀 Quick Start</h4>
+                <h4 className="text-lg font-semibold text-white mb-2">Quick Start</h4>
                 <ol className="list-decimal list-inside text-sm text-gray-300 space-y-2">
                   <li>Open the app - data generates automatically</li>
                   <li>Adjust whale threshold slider (10K-200K shares)</li>
                   <li>Click a stock card to view detailed charts</li>
-                  <li>Set up alerts in Settings → Alerts</li>
+                  <li>Set up alerts in Settings / Alerts</li>
                 </ol>
               </div>
 
               {/* Grafana */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
                 <h4 className="text-lg font-semibold text-white mb-2">
-                  📊 Connect Grafana
+                  Connect Grafana
                 </h4>
                 <ol className="list-decimal list-inside text-sm text-gray-300 space-y-2">
                   <li>Install Infinity plugin: <code className="bg-dark-800 px-1 rounded">grafana-cli plugins install yesoreyeram-infinity-datasource</code></li>
-                  <li>Add Data Source → Infinity</li>
+                  <li>Add Data Source / Infinity</li>
                   <li>URL: <code className="bg-dark-800 px-1 rounded">http://localhost:8000/grafana/table?symbol=AAPL</code></li>
                   <li>Parse with UQL: <code className="bg-dark-800 px-1 rounded">parse-json</code></li>
                 </ol>
@@ -376,33 +549,33 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
               {/* Plotly */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
                 <h4 className="text-lg font-semibold text-white mb-2">
-                  📈 Connect Plotly
+                  Connect Plotly
                 </h4>
                 <p className="text-sm text-gray-300 mb-2">
                   Use Plotly JSON from these endpoints:
                 </p>
                 <ul className="text-sm text-gray-300 space-y-1">
-                  <li>• Area Chart: <code className="bg-dark-800 px-1 rounded">/visualization/area?symbol=AAPL</code></li>
-                  <li>• Bar Chart: <code className="bg-dark-800 px-1 rounded">/visualization/bar?symbol=AAPL</code></li>
-                  <li>• Combined: <code className="bg-dark-800 px-1 rounded">/visualization/combined?symbol=AAPL</code></li>
+                  <li>Area Chart: <code className="bg-dark-800 px-1 rounded">/visualization/area?symbol=AAPL</code></li>
+                  <li>Bar Chart: <code className="bg-dark-800 px-1 rounded">/visualization/bar?symbol=AAPL</code></li>
+                  <li>Combined: <code className="bg-dark-800 px-1 rounded">/visualization/combined?symbol=AAPL</code></li>
                 </ul>
               </div>
 
               {/* Discord Bot */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
                 <h4 className="text-lg font-semibold text-white mb-2">
-                  💬 Discord Slash Commands
+                  Discord Slash Commands
                 </h4>
                 <ul className="text-sm text-gray-300 space-y-1">
-                  <li>• <code className="bg-dark-800 px-1 rounded">/darkpool symbol:AAPL tier:T1</code> - Get darkpool data</li>
-                  <li>• <code className="bg-dark-800 px-1 rounded">/setalert symbol:NVDA threshold:100000</code> - Set whale alert</li>
-                  <li>• <code className="bg-dark-800 px-1 rounded">/alertstatus</code> - Show active alerts</li>
+                  <li><code className="bg-dark-800 px-1 rounded">/darkpool symbol:AAPL tier:T1</code> - Get darkpool data</li>
+                  <li><code className="bg-dark-800 px-1 rounded">/setalert symbol:NVDA threshold:100000</code> - Set whale alert</li>
+                  <li><code className="bg-dark-800 px-1 rounded">/alertstatus</code> - Show active alerts</li>
                 </ul>
               </div>
 
               {/* Images Placeholder */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
-                <h4 className="text-lg font-semibold text-white mb-2">🖼️ Interface Guide</h4>
+                <h4 className="text-lg font-semibold text-white mb-2">Interface Guide</h4>
                 <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
                   <div className="p-2 bg-dark-800 rounded">
                     <div className="text-accent-cyan mb-1">Stock Cards</div>
@@ -426,7 +599,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
               {/* Greek Letters */}
               <div className="p-4 rounded-lg bg-dark-700/50 border border-dark-600">
                 <h4 className="text-lg font-semibold text-white mb-2">
-                  αβΓδ Options Greeks
+                  Options Greeks
                 </h4>
                 <div className="grid grid-cols-5 gap-2 text-center">
                   {Object.entries(GREEK_SYMBOLS).map(([key, symbol]) => (

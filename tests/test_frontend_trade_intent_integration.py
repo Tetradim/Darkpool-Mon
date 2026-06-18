@@ -15,7 +15,7 @@ def test_trade_intent_view_is_reachable_from_app_navigation():
     trade_intent_summary = Path("src/TradeIntentSummary.jsx").read_text(encoding="utf-8")
 
     assert "TradeIntentView" in app
-    assert "from './TradeIntentView'" in app
+    assert "import('./TradeIntentView')" in app
     assert "'intent'" in app
     assert "buildTradeIntentUrl" in trade_intent_view
     assert "Max Caution Flags" in trade_intent_view

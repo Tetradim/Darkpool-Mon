@@ -103,6 +103,33 @@ export const PROVIDERS = {
   INTRINIO: 'intrinio',
 };
 
+export const PROVIDER_OPTIONS = [
+  {
+    id: PROVIDERS.FINRA,
+    label: 'FINRA',
+    badge: 'RUNNABLE',
+    runnable: true,
+    requiresApiKey: false,
+    detail: 'Primary live OTC aggregate feed.',
+  },
+  {
+    id: PROVIDERS.POLYGON,
+    label: 'Polygon',
+    badge: 'NOT WIRED',
+    runnable: false,
+    requiresApiKey: true,
+    detail: 'API key can be saved, but live execution is not wired yet.',
+  },
+  {
+    id: PROVIDERS.INTRINIO,
+    label: 'Intrinio',
+    badge: 'NOT WIRED',
+    runnable: false,
+    requiresApiKey: true,
+    detail: 'API key can be saved, but live execution is not wired yet.',
+  },
+];
+
 // Default Settings
 export const DEFAULT_SETTINGS = {
   theme: 'DEFAULT',
@@ -136,20 +163,33 @@ export const GREEK_NAMES = {
   rho: 'Rho',
 };
 
-// Helper to get CSS variables from theme
-export const getThemeCSS = (themeName) => {
+const getTheme = (themeName) => {
   const theme = THEMES[themeName] || THEMES.DEFAULT;
-  return `
-    --color-bg: ${theme.background};
-    --color-bg-alt: ${theme.backgroundAlt};
-    --color-card: ${theme.card};
-    --color-card-hover: ${theme.cardHover};
-    --color-text: ${theme.text};
-    --color-text-secondary: ${theme.textSecondary};
-    --color-accent: ${theme.accent};
-    --color-accent-green: ${theme.accentGreen};
-    --color-accent-red: ${theme.accentRed};
-    --color-accent-yellow: ${theme.accentYellow};
-    --color-border: ${theme.border};
-  `;
+  return theme;
 };
+
+// Helper to get React-compatible CSS variables from a theme.
+export const getThemeStyle = (themeName) => {
+  const theme = getTheme(themeName);
+
+  return {
+    '--color-bg': theme.background,
+    '--color-bg-alt': theme.backgroundAlt,
+    '--color-card': theme.card,
+    '--color-card-hover': theme.cardHover,
+    '--color-text': theme.text,
+    '--color-text-secondary': theme.textSecondary,
+    '--color-accent': theme.accent,
+    '--color-accent-green': theme.accentGreen,
+    '--color-accent-red': theme.accentRed,
+    '--color-accent-yellow': theme.accentYellow,
+    '--color-border': theme.border,
+  };
+};
+
+// Helper to get CSS variables from theme
+export const getThemeCSS = (themeName) => (
+  Object.entries(getThemeStyle(themeName))
+    .map(([key, value]) => `    ${key}: ${value};`)
+    .join('\n')
+);

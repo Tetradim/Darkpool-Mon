@@ -48,6 +48,62 @@ def test_api_compatibility_routes_return_data():
     assert "sentiment" in response.json()
 
 
+def test_provider_catalog_marks_execution_capabilities_clearly():
+    client = TestClient(server.app)
+
+    response = client.get("/providers")
+    assert response.status_code == 200, response.text
+
+    providers = {provider["id"]: provider for provider in response.json()}
+    assert providers["demo"] == {
+        "id": "demo",
+        "label": "Demo Tape",
+        "runnable": True,
+        "requires_api_key": False,
+        "has_api_key": False,
+        "status": "ready",
+        "message": "Offline deterministic data for local dashboards and tests.",
+    }
+    assert providers["finra"]["runnable"] is True
+    assert providers["finra"]["status"] == "ready"
+    assert providers["polygon"]["runnable"] is False
+    assert providers["polygon"]["requires_api_key"] is True
+    assert providers["polygon"]["status"] == "not_implemented"
+    assert providers["intrinio"]["runnable"] is False
+    assert providers["intrinio"]["requires_api_key"] is True
+    assert providers["intrinio"]["status"] == "not_implemented"
+
+
+@pytest.mark.asyncio
+async def test_provider_catalog_runnable_entries_match_fetcher_support():
+    client = TestClient(server.app)
+    providers = client.get("/providers").json()
+
+    for provider in providers:
+        if provider["runnable"]:
+            result = await fetch_provider_result("AAPL", provider=provider["id"], limit=5)
+            assert result.prints
+        else:
+            with pytest.raises(ProviderError, match="not available for execution|Unsupported provider"):
+                await fetch_provider_result("AAPL", provider=provider["id"], limit=5)
+
+
+def test_legacy_otc_route_rejects_unavailable_provider_before_network(monkeypatch):
+    import routes.darkpool_routes as darkpool_routes
+
+    async def fail_if_called(symbol):
+        raise AssertionError("external provider adapter should not run")
+
+    monkeypatch.setenv("POLYGON_API_KEY", "configured-but-not-wired")
+    monkeypatch.setattr(darkpool_routes, "_fetch_polygon_otc_data", fail_if_called)
+
+    client = TestClient(server.app)
+    response = client.get("/darkpool/otc?symbol=AAPL&provider=polygon")
+
+    assert response.status_code == 400, response.text
+    assert "not available for execution" in response.text
+
+
 def test_discord_unknown_command_payload_is_handled(monkeypatch):
     monkeypatch.setenv("ALLOW_UNSIGNED_DISCORD_INTERACTIONS", "true")
     client = TestClient(server.app)
