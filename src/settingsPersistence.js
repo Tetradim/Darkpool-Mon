@@ -147,6 +147,34 @@ const formatFeedSort = (feedSort) => (
   String(feedSort || '').toUpperCase() === 'LARGEST' ? 'Largest first' : 'Latest first'
 );
 
+const DASHBOARD_FILTER_KEYS = [
+  'selectedStock',
+  'timeframe',
+  'threshold',
+  'whaleThreshold',
+  'feedSort',
+];
+
+export const buildDashboardFilterChips = (controls = {}) => {
+  const normalized = extractDashboardControls(controls);
+
+  return [
+    { label: 'Symbol', value: normalized.selectedStock },
+    { label: 'Window', value: normalized.timeframe },
+    { label: 'Min Print', value: `$${normalized.threshold}M+` },
+    { label: 'Whale Gate', value: `${normalized.whaleThreshold}K+` },
+    { label: 'Sort', value: formatFeedSort(normalized.feedSort) },
+  ];
+};
+
+export const hasCustomDashboardFilters = (controls = {}) => {
+  const normalized = extractDashboardControls(controls);
+
+  return DASHBOARD_FILTER_KEYS.some(
+    (key) => normalized[key] !== DASHBOARD_CONTROL_DEFAULTS[key]
+  );
+};
+
 const summarizeAlertDelivery = (settings) => {
   if (settings.soundEnabled && settings.desktopAlerts) return 'Sound + desktop';
   if (settings.desktopAlerts) return 'Desktop only';

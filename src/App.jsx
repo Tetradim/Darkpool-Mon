@@ -16,7 +16,14 @@ import {
 import { getThemeStyle } from './themes';
 import { summarizeDashboardPulse } from './dashboardPulse';
 import { computeZScore, rowsToCsv } from './flowEngine';
-import { extractDashboardControls, mergeDashboardControls, normalizePersistedSettings } from './settingsPersistence';
+import {
+  DASHBOARD_CONTROL_DEFAULTS,
+  buildDashboardFilterChips,
+  extractDashboardControls,
+  hasCustomDashboardFilters,
+  mergeDashboardControls,
+  normalizePersistedSettings,
+} from './settingsPersistence';
 import {
   SettingsModal,
   StockSparkline,
@@ -330,6 +337,14 @@ export default function App() {
     () => mergeDashboardControls(settings, dashboardControls),
     [settings, dashboardControls]
   );
+  const activeFilterChips = useMemo(
+    () => buildDashboardFilterChips(dashboardControls),
+    [dashboardControls]
+  );
+  const hasCustomFilters = useMemo(
+    () => hasCustomDashboardFilters(dashboardControls),
+    [dashboardControls]
+  );
 
   const appThemeStyle = useMemo(() => ({
     ...getThemeStyle(settings.theme),
@@ -361,6 +376,14 @@ export default function App() {
     setWhaleThreshold(controls.whaleThreshold);
     setFeedSort(controls.feedSort);
     setIsRunning(controls.isRunning);
+  };
+
+  const handleClearDashboardFilters = () => {
+    setSelectedStock(DASHBOARD_CONTROL_DEFAULTS.selectedStock);
+    setTimeframe(DASHBOARD_CONTROL_DEFAULTS.timeframe);
+    setThreshold(DASHBOARD_CONTROL_DEFAULTS.threshold);
+    setWhaleThreshold(DASHBOARD_CONTROL_DEFAULTS.whaleThreshold);
+    setFeedSort(DASHBOARD_CONTROL_DEFAULTS.feedSort);
   };
 
   useEffect(() => {
@@ -695,8 +718,36 @@ export default function App() {
             Export CSV
           </button>
         </div>
-      </div>
-      )}
+
+         <div
+           className="flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-lg border border-dark-600/60 bg-dark-900/45 px-3 py-2"
+           aria-label="Active dashboard filters"
+         >
+           <span className="shrink-0 text-xs font-semibold uppercase text-gray-500">Active Filters</span>
+           {activeFilterChips.map((chip) => (
+             <span
+               key={chip.label}
+               className="inline-flex items-center gap-1 rounded-md border border-dark-600/80 bg-dark-800 px-2 py-1 text-xs text-gray-300"
+             >
+               <span className="text-gray-500">{chip.label}</span>
+               <span className="font-mono text-white">{chip.value}</span>
+             </span>
+           ))}
+           <button
+             type="button"
+             onClick={handleClearDashboardFilters}
+             disabled={!hasCustomFilters}
+             className={`ml-auto rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+               hasCustomFilters
+                 ? 'bg-accent-cyan/15 text-accent-cyan hover:bg-accent-cyan/25'
+                 : 'cursor-not-allowed bg-dark-800 text-gray-600'
+             }`}
+           >
+             Clear Filters
+           </button>
+         </div>
+       </div>
+       )}
 
       {/* Main Content Based on View Mode */}
       {WorkspaceView ? (

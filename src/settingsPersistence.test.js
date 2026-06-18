@@ -9,6 +9,8 @@ import {
   parseSettingsProfile,
   previewSettingsProfile,
   buildSettingsProfileImportState,
+  buildDashboardFilterChips,
+  hasCustomDashboardFilters,
   serializeSettingsProfile,
   summarizeSettingsProfile,
 } from './settingsPersistence';
@@ -86,6 +88,28 @@ describe('settings persistence helpers', () => {
       selectedStock: 'TSLA',
       viewMode: 'scanner',
     });
+  });
+
+  it('builds operator-facing active filter chips from dashboard controls', () => {
+    expect(buildDashboardFilterChips({
+      selectedStock: 'NVDA',
+      timeframe: '4H',
+      threshold: 12,
+      whaleThreshold: 120,
+      feedSort: 'LARGEST',
+    })).toEqual([
+      { label: 'Symbol', value: 'NVDA' },
+      { label: 'Window', value: '4H' },
+      { label: 'Min Print', value: '$12M+' },
+      { label: 'Whale Gate', value: '120K+' },
+      { label: 'Sort', value: 'Largest first' },
+    ]);
+  });
+
+  it('detects custom dashboard filters without treating run state as a filter', () => {
+    expect(hasCustomDashboardFilters({ ...DASHBOARD_CONTROL_DEFAULTS, isRunning: false })).toBe(false);
+    expect(hasCustomDashboardFilters({ ...DASHBOARD_CONTROL_DEFAULTS, selectedStock: 'AAPL' })).toBe(true);
+    expect(hasCustomDashboardFilters({ ...DASHBOARD_CONTROL_DEFAULTS, feedSort: 'LARGEST' })).toBe(true);
   });
 
   it('falls back to dashboard when persisted workspace is not recognized', () => {
