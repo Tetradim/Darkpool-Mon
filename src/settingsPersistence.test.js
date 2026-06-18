@@ -16,9 +16,9 @@ describe('settings persistence helpers', () => {
   it('hydrates persisted settings with modal and dashboard defaults', () => {
     const settings = normalizePersistedSettings({
       theme: 'MATRIX',
+      viewMode: 'health',
       provider: 'polygon',
       selectedStock: 'NVDA',
-      viewMode: 'health',
       threshold: 12,
       isRunning: false,
     });
@@ -184,6 +184,7 @@ describe('settings persistence helpers', () => {
   it('summarizes the active profile into operator-facing cards', () => {
     expect(summarizeSettingsProfile({
       theme: 'MATRIX',
+      viewMode: 'health',
       provider: 'polygon',
       selectedStock: 'NVDA',
       threshold: 6,
@@ -197,6 +198,7 @@ describe('settings persistence helpers', () => {
       discordWebhook: 'https://discord.example/webhook',
     })).toEqual([
       { label: 'Theme', value: 'MATRIX', detail: 'Chart style area' },
+      { label: 'Workspace', value: 'Health', detail: 'Last opened desk view' },
       { label: 'Provider', value: 'POLYGON', detail: 'External data source' },
       { label: 'Tape Filter', value: 'NVDA / $6M+', detail: 'Largest first' },
       { label: 'Whale Gate', value: '140K shares', detail: 'Simulation paused' },
@@ -208,6 +210,7 @@ describe('settings persistence helpers', () => {
   it('summarizes default profile settings without blank card text', () => {
     expect(summarizeSettingsProfile({})).toEqual([
       { label: 'Theme', value: 'DEFAULT', detail: 'Chart style area' },
+      { label: 'Workspace', value: 'Dashboard', detail: 'Last opened desk view' },
       { label: 'Provider', value: 'FINRA', detail: 'External data source' },
       { label: 'Tape Filter', value: 'ALL / $1M+', detail: 'Latest first' },
       { label: 'Whale Gate', value: '50K shares', detail: 'Simulation live' },

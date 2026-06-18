@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS } from './themes';
-import { VIEW_MODES } from './viewModes';
+import { VIEW_MODES, getViewModeLabel } from './viewModes';
 
 export const DASHBOARD_CONTROL_DEFAULTS = {
   selectedStock: 'ALL',
@@ -143,6 +143,11 @@ export const summarizeSettingsProfile = (settings = {}) => {
       label: 'Theme',
       value: String(normalized.theme || DEFAULT_SETTINGS.theme).toUpperCase(),
       detail: `Chart style ${normalized.chartType || DEFAULT_SETTINGS.chartType}`,
+    },
+    {
+      label: 'Workspace',
+      value: getViewModeLabel(normalized.viewMode),
+      detail: 'Last opened desk view',
     },
     {
       label: 'Provider',
