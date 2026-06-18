@@ -220,6 +220,45 @@ const ReplayView = () => {
     [events, symbolQuery, sideFilter, minSize]
   );
   const replaySummary = useMemo(() => summarizeReplayEvents(visibleEvents), [visibleEvents]);
+  const hasActiveReplayFilters = Boolean(symbolQuery.trim() || sideFilter !== 'ALL' || minSize > 0);
+  const replaySummaryCards = [
+    {
+      label: 'Events',
+      value: replaySummary.totalEvents,
+      detail: `${visibleEvents.length}/${events.length} visible`,
+    },
+    {
+      label: 'Notional',
+      value: `$${(replaySummary.totalNotional / 1000000).toFixed(1)}M`,
+      detail: 'Filtered tape value',
+    },
+    {
+      label: 'Buy Events',
+      value: replaySummary.buyCount,
+      detail: 'Filter buys',
+      onClick: () => setSideFilter('BUY'),
+    },
+    {
+      label: 'Sell Events',
+      value: replaySummary.sellCount,
+      detail: 'Filter sells',
+      onClick: () => setSideFilter('SELL'),
+    },
+    {
+      label: 'Top Symbol',
+      value: replaySummary.topSymbol.symbol,
+      detail: `${replaySummary.topSymbol.count} event${replaySummary.topSymbol.count === 1 ? '' : 's'}`,
+      onClick: replaySummary.topSymbol.symbol !== 'N/A'
+        ? () => setSymbolQuery(replaySummary.topSymbol.symbol)
+        : undefined,
+    },
+  ];
+
+  const clearReplayFilters = () => {
+    setSymbolQuery('');
+    setSideFilter('ALL');
+    setMinSize(0);
+  };
 
   // Playback controls
   useEffect(() => {
@@ -268,22 +307,19 @@ const ReplayView = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ['Events', replaySummary.totalEvents],
-          ['Notional', `$${(replaySummary.totalNotional / 1000000).toFixed(1)}M`],
-          ['Buy / Sell', `${replaySummary.buyCount} / ${replaySummary.sellCount}`],
-          ['Top Symbol', replaySummary.topSymbol.symbol],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-purple-200">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {replaySummaryCards.map(({ label, value, detail, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!onClick}
+            onClick={onClick}
+            className="rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-left text-purple-200 transition-all enabled:hover:border-purple-300/40 enabled:hover:bg-purple-500/15 disabled:cursor-default"
+          >
             <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
-            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
-            {label === 'Top Symbol' && (
-              <div className="mt-1 text-xs text-current/70">
-                {replaySummary.topSymbol.count} events
-              </div>
-            )}
-          </div>
+            <div className="mt-2 truncate font-mono text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 truncate text-xs text-current/70">{detail}</div>
+          </button>
         ))}
       </div>
 
@@ -367,6 +403,16 @@ const ReplayView = () => {
             className="w-28 rounded bg-dark-700 px-2 py-1 font-mono text-sm text-white"
           />
         </label>
+
+        {hasActiveReplayFilters && (
+          <button
+            type="button"
+            onClick={clearReplayFilters}
+            className="rounded-lg bg-dark-900/70 px-3 py-1.5 text-sm text-gray-300 hover:bg-dark-700 hover:text-white"
+          >
+            Clear Filters
+          </button>
+        )}
       </div>
 
       {/* Event Stream */}
