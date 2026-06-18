@@ -27,4 +27,14 @@ describe('Advanced view UI wiring', () => {
     expect(replayViewSource).toContain("setSideFilter('SELL')");
     expect(replayViewSource).toContain('Clear Filters');
   });
+
+  it('wires admin summary cards into existing Admin filters', () => {
+    const adminViewSource = source.slice(source.indexOf('const AdminView = () => {'));
+
+    expect(adminViewSource).toContain("setActiveTab('api-keys')");
+    expect(adminViewSource).toContain("setKeyStatus('active')");
+    expect(adminViewSource).toContain("setActiveTab('retention')");
+    expect(adminViewSource).toContain("setRetentionMode('auto')");
+    expect(adminViewSource).toContain('clearAdminFilters');
+  });
 });

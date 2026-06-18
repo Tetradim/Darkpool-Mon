@@ -545,25 +545,70 @@ const AdminView = () => {
     : activeTab === 'audit'
       ? auditLogs.length
       : retentionPolicies.length;
+  const hasActiveAdminFilters = Boolean(adminQuery.trim() || keyStatus !== 'all' || retentionMode !== 'all');
+  const adminSummaryCards = [
+    {
+      label: 'API Keys',
+      value: adminSummary.keyCount,
+      detail: 'Open keys',
+      onClick: () => {
+        setActiveTab('api-keys');
+        setAdminQuery('');
+      },
+    },
+    {
+      label: 'Active Keys',
+      value: adminSummary.activeKeyCount,
+      detail: 'Filter active',
+      onClick: () => {
+        setActiveTab('api-keys');
+        setKeyStatus('active');
+        setAdminQuery('');
+      },
+    },
+    {
+      label: 'Audit Logs',
+      value: adminSummary.auditLogCount,
+      detail: adminSummary.latestAuditAt
+        ? `latest ${new Date(adminSummary.latestAuditAt).toLocaleTimeString()}`
+        : 'No audit events',
+      onClick: () => {
+        setActiveTab('audit');
+        setAdminQuery('');
+      },
+    },
+    {
+      label: 'Auto Delete',
+      value: adminSummary.autoDeletePolicyCount,
+      detail: 'Retention policies',
+      onClick: () => {
+        setActiveTab('retention');
+        setRetentionMode('auto');
+        setAdminQuery('');
+      },
+    },
+  ];
+
+  const clearAdminFilters = () => {
+    setAdminQuery('');
+    setKeyStatus('all');
+    setRetentionMode('all');
+  };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ['API Keys', adminSummary.keyCount],
-          ['Active Keys', adminSummary.activeKeyCount],
-          ['Audit Logs', adminSummary.auditLogCount],
-          ['Auto Delete', adminSummary.autoDeletePolicyCount],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-200">
+        {adminSummaryCards.map(({ label, value, detail, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={onClick}
+            className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-left text-cyan-200 transition-all hover:border-cyan-300/40 hover:bg-cyan-500/15"
+          >
             <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
-            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
-            {label === 'Audit Logs' && adminSummary.latestAuditAt && (
-              <div className="mt-1 text-xs text-current/70">
-                latest {new Date(adminSummary.latestAuditAt).toLocaleTimeString()}
-              </div>
-            )}
-          </div>
+            <div className="mt-2 truncate font-mono text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 truncate text-xs text-current/70">{detail}</div>
+          </button>
         ))}
       </div>
 
@@ -618,6 +663,15 @@ const AdminView = () => {
             <option value="auto">Auto-delete</option>
             <option value="manual">Manual</option>
           </select>
+        )}
+        {hasActiveAdminFilters && (
+          <button
+            type="button"
+            onClick={clearAdminFilters}
+            className="rounded-lg bg-dark-900/70 px-3 py-1.5 text-sm text-gray-300 hover:bg-dark-700 hover:text-white"
+          >
+            Clear Filters
+          </button>
         )}
       </div>
 
