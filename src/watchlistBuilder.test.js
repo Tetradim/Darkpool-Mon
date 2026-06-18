@@ -121,8 +121,23 @@ describe('summarizeWatchlists', () => {
     ).toEqual({
       listCount: 2,
       uniqueSymbolCount: 5,
+      totalSymbolSlots: 6,
+      overlapSymbolCount: 1,
       filterCount: 1,
       largestList: { name: 'AI Momentum', symbolCount: 3 },
+      mostRepeatedSymbol: { symbol: 'NVDA', listCount: 2 },
+    });
+  });
+
+  it('summarizes empty watchlist coverage without blank card values', () => {
+    expect(summarizeWatchlists([])).toEqual({
+      listCount: 0,
+      uniqueSymbolCount: 0,
+      totalSymbolSlots: 0,
+      overlapSymbolCount: 0,
+      filterCount: 0,
+      largestList: { name: 'N/A', symbolCount: 0 },
+      mostRepeatedSymbol: { symbol: 'N/A', listCount: 0 },
     });
   });
 });

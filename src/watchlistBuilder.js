@@ -89,22 +89,47 @@ export const filterWatchlists = (watchlists = [], filters = {}) => {
 
 export const summarizeWatchlists = (watchlists = []) => {
   const uniqueSymbols = new Set();
+  const symbolListCounts = new Map();
   let filterCount = 0;
+  let totalSymbolSlots = 0;
   let largestList = { name: 'N/A', symbolCount: 0 };
 
   watchlists.forEach((watchlist) => {
     const symbols = Array.isArray(watchlist?.symbols) ? watchlist.symbols : [];
-    symbols.forEach((symbol) => uniqueSymbols.add(String(symbol || '').toUpperCase()));
+    const symbolsInList = new Set(
+      symbols
+        .map((symbol) => String(symbol || '').toUpperCase())
+        .filter(Boolean)
+    );
+
+    totalSymbolSlots += symbolsInList.size;
+    symbolsInList.forEach((symbol) => {
+      uniqueSymbols.add(symbol);
+      symbolListCounts.set(symbol, (symbolListCounts.get(symbol) || 0) + 1);
+    });
     filterCount += Array.isArray(watchlist?.filters) ? watchlist.filters.length : 0;
     if (symbols.length > largestList.symbolCount) {
       largestList = { name: watchlist?.name || 'Untitled', symbolCount: symbols.length };
     }
   });
 
+  let mostRepeatedSymbol = { symbol: 'N/A', listCount: 0 };
+  symbolListCounts.forEach((listCount, symbol) => {
+    if (
+      listCount > mostRepeatedSymbol.listCount ||
+      (listCount === mostRepeatedSymbol.listCount && symbol < mostRepeatedSymbol.symbol)
+    ) {
+      mostRepeatedSymbol = { symbol, listCount };
+    }
+  });
+
   return {
     listCount: watchlists.length,
     uniqueSymbolCount: uniqueSymbols.size,
+    totalSymbolSlots,
+    overlapSymbolCount: Array.from(symbolListCounts.values()).filter((listCount) => listCount > 1).length,
     filterCount,
     largestList,
+    mostRepeatedSymbol,
   };
 };

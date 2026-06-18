@@ -598,23 +598,62 @@ const WatchlistView = () => {
     error: requestError,
     itemCount: watchlists.length,
   });
+  const watchlistSummaryCards = [
+    {
+      label: 'Lists',
+      value: watchlistSummary.listCount,
+      detail: 'Saved lists',
+    },
+    {
+      label: 'Unique Symbols',
+      value: watchlistSummary.uniqueSymbolCount,
+      detail: `${watchlistSummary.totalSymbolSlots} total slots`,
+    },
+    {
+      label: 'Shared Focus',
+      value: watchlistSummary.mostRepeatedSymbol.symbol,
+      detail: watchlistSummary.mostRepeatedSymbol.listCount > 0
+        ? `${watchlistSummary.mostRepeatedSymbol.listCount} list${watchlistSummary.mostRepeatedSymbol.listCount === 1 ? '' : 's'}`
+        : 'No overlap yet',
+      onClick: watchlistSummary.mostRepeatedSymbol.symbol !== 'N/A'
+        ? () => setWatchlistQuery(watchlistSummary.mostRepeatedSymbol.symbol)
+        : undefined,
+    },
+    {
+      label: 'Overlaps',
+      value: watchlistSummary.overlapSymbolCount,
+      detail: 'Symbols in 2+ lists',
+    },
+    {
+      label: 'Saved Filters',
+      value: watchlistSummary.filterCount,
+      detail: 'Stored list filters',
+    },
+    {
+      label: 'Largest List',
+      value: watchlistSummary.largestList.symbolCount,
+      detail: watchlistSummary.largestList.name,
+      onClick: watchlistSummary.largestList.name !== 'N/A'
+        ? () => setWatchlistQuery(watchlistSummary.largestList.name)
+        : undefined,
+    },
+  ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ['Lists', watchlistSummary.listCount],
-          ['Unique Symbols', watchlistSummary.uniqueSymbolCount],
-          ['Saved Filters', watchlistSummary.filterCount],
-          ['Largest List', watchlistSummary.largestList.symbolCount],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-200">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        {watchlistSummaryCards.map(({ label, value, detail, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!onClick}
+            onClick={onClick}
+            className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-left text-cyan-200 transition-all enabled:hover:border-cyan-300/40 enabled:hover:bg-cyan-500/15 disabled:cursor-default"
+          >
             <div className="text-xs font-semibold uppercase text-current/70">{label}</div>
-            <div className="mt-2 font-mono text-2xl font-bold text-white">{value}</div>
-            {label === 'Largest List' && (
-              <div className="mt-1 truncate text-xs text-current/70">{watchlistSummary.largestList.name}</div>
-            )}
-          </div>
+            <div className="mt-2 truncate font-mono text-2xl font-bold text-white">{value}</div>
+            <div className="mt-1 truncate text-xs text-current/70">{detail}</div>
+          </button>
         ))}
       </div>
 

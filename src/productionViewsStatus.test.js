@@ -26,4 +26,15 @@ describe('Production view request status wiring', () => {
     expect(alertsViewSource).toContain('ALERT_ROUTE_FILTERS.map');
     expect(alertsViewSource).toContain('Clear Filters');
   });
+
+  it('wires watchlist overlap summaries into the Watchlists workspace', () => {
+    const watchlistViewSource = source.slice(
+      source.indexOf('const WatchlistView = () => {'),
+      source.indexOf('// System Health Component')
+    );
+
+    expect(watchlistViewSource).toContain('watchlistSummary.mostRepeatedSymbol.symbol');
+    expect(watchlistViewSource).toContain('watchlistSummary.overlapSymbolCount');
+    expect(watchlistViewSource).toContain('setWatchlistQuery(watchlistSummary.mostRepeatedSymbol.symbol)');
+  });
 });
