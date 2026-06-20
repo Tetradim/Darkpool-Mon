@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from darkpool.alerting import build_alert_candidates
+from darkpool.backtesting import build_print_followthrough_backtest
 from darkpool.bot_event_bus import build_trade_intent_event_payload, publish_event
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import get_stock, sample_exposure_nodes, sample_options_flow
@@ -298,6 +299,36 @@ async def get_darkpool_alert_candidates(
         "degraded": provider_result.degraded,
         "message": provider_result.message,
         "alerts": [alert.model_dump(mode="json") for alert in alerts],
+    }
+
+
+@router.get("/darkpool/backtest")
+async def get_darkpool_backtest(
+    symbol: str = Query("AAPL", description="Stock symbol"),
+    provider: str = Query("demo", description="Data provider: demo or finra"),
+    fee_bps: float = Query(2.0, ge=0, le=100, description="Round-trip cost estimate in basis points"),
+    trade_limit: int = Query(50, ge=1, le=500),
+):
+    """Return lightweight print follow-through backtest metrics."""
+    try:
+        provider_result = await fetch_provider_result(symbol, provider=provider, limit=500)
+    except ProviderError as exc:
+        raise HTTPException(400, str(exc))
+
+    summary = build_print_followthrough_backtest(
+        symbol=symbol,
+        provider=provider_result.provider,
+        prints=provider_result.prints,
+        fee_bps=fee_bps,
+        limit=trade_limit,
+    )
+    return {
+        "symbol": symbol.upper(),
+        "provider": provider_result.provider,
+        "degraded": provider_result.degraded,
+        "message": provider_result.message,
+        "summary": summary.model_dump(mode="json"),
+        "fetched_at": datetime.utcnow().isoformat(),
     }
 
 

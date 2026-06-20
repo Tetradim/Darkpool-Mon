@@ -20,6 +20,7 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Risk envelopes for trade intents with candidate side, entry, stop, target, whole-share sizing, share-rounded notional, per-share risk/reward, estimated loss, and estimated gain.
 - Market-regime controls that classify trend-up, trend-down, range-bound, high-volatility, or insufficient-data conditions from recent prints before Sentinel review.
 - Session drawdown, volatility-cap, allowed-regime, and volatility-adjusted-stop gates based on common crypto-bot risk-management patterns.
+- Lightweight print follow-through backtest metrics for win rate, profit factor, expectancy, cumulative return, and max drawdown.
 - Source-confirmation coverage planning for price/NBBO, liquidity/depth, halt/LULD, material-news, and optional options-flow confirmation before Pulse packet preparation.
 - Pulse handoff guardrails that require Sentinel Edge approval, explicit manual execution, risk checks, source-coverage audit metadata, and rejection of live-order packet keys.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
@@ -112,6 +113,7 @@ Dark pool intelligence:
 - `GET /darkpool/levels?symbol=AAPL&provider=demo`
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
+- `GET /darkpool/backtest?symbol=AAPL&provider=demo&fee_bps=2&trade_limit=50`
 - `GET /darkpool/information-sources?active_provider=finra`
 - `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&max_session_drawdown_pct=5&current_session_drawdown_pct=0&max_regime_volatility_pct=10&allow_trend_up=true&allow_trend_down=true&allow_range_bound=true&allow_high_volatility=false&use_volatility_adjusted_stop=true&max_quality_caution_flags=99&min_quality_support_flags=0&min_source_confirmation_weight=0&require_source_coverage_complete=true&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
 
@@ -290,7 +292,7 @@ Feature direction was informed by public documentation and product behavior from
 
 - Add a paid provider adapter for Unusual Whales or another licensed source for live dark pool prints, options flow, GEX, VEX, halts, and news.
 - Add crypto exchange provider adapters for market data, paper trading, and strict read-only/live-trading separation.
-- Add strategy backtesting metrics for win rate, profit factor, Sharpe-like risk-adjusted return, max drawdown, and out-of-sample validation.
+- Expand strategy backtesting with Sharpe-like risk-adjusted return, walk-forward tests, slippage modeling, and out-of-sample validation.
 - Persist normalized events and aggregates in PostgreSQL or TimescaleDB.
 - Add Docker Compose for backend, frontend, and database.
 - Add websocket push from backend alert candidates to the dashboard.

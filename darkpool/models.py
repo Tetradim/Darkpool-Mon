@@ -78,6 +78,32 @@ class MarketRegime(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class BacktestTrade(BaseModel):
+    symbol: str
+    side: Direction
+    entry_price: float
+    exit_price: float
+    gross_return_pct: float
+    net_return_pct: float
+    timestamp: datetime
+
+
+class BacktestSummary(BaseModel):
+    symbol: str
+    provider: str
+    trade_count: int
+    win_rate_pct: float
+    profit_factor: float | None
+    expectancy_pct: float
+    cumulative_return_pct: float
+    max_drawdown_pct: float
+    average_win_pct: float
+    average_loss_pct: float
+    fee_bps: float
+    warning: str
+    trades: list[BacktestTrade]
+
+
 class ConfluenceScore(BaseModel):
     symbol: str
     level_price: float
