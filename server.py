@@ -27,6 +27,7 @@ from darkpool.discord_formatting import summary_to_embed
 from darkpool.fixtures import MAG7_STOCKS, generateTransaction
 from darkpool.providers import ProviderError, fetch_provider_result, list_provider_capabilities
 from darkpool.subscriptions import SubscriptionStore
+from darkpool.bot_event_bus_routes import router as bot_event_bus_router
 from routes.darkpool_routes import router as darkpool_router
 
 load_dotenv()
@@ -52,6 +53,7 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+app.include_router(bot_event_bus_router)
 app.include_router(darkpool_router)
 
 subscription_store = SubscriptionStore()

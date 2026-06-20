@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from darkpool.alerting import build_alert_candidates
+from darkpool.bot_event_bus import build_trade_intent_event_payload, publish_event
 from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
@@ -382,7 +383,7 @@ async def get_darkpool_trade_intent(
     confirmation_sources = context.confirmation_plan
 
     if not scores:
-        return {
+        response_payload = {
             "symbol": context.symbol,
             "provider": provider_result.provider,
             "degraded": provider_result.degraded,
@@ -395,8 +396,14 @@ async def get_darkpool_trade_intent(
             "pulse_status": asdict(report.pulse_status),
             "fetched_at": datetime.utcnow().isoformat(),
         }
+        publish_event(
+            "darkpool.trade_intent.reviewed",
+            build_trade_intent_event_payload(report),
+            target="sentinel-edge",
+        )
+        return response_payload
 
-    return {
+    response_payload = {
         "symbol": context.symbol,
         "provider": provider_result.provider,
         "degraded": provider_result.degraded,
@@ -410,3 +417,9 @@ async def get_darkpool_trade_intent(
         "source_score": scores[0].model_dump(mode="json"),
         "fetched_at": datetime.utcnow().isoformat(),
     }
+    publish_event(
+        "darkpool.trade_intent.reviewed",
+        build_trade_intent_event_payload(report),
+        target="sentinel-edge",
+    )
+    return response_payload
