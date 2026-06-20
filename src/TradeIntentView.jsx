@@ -29,6 +29,9 @@ const NUMBER_FIELD_GROUPS = [
       ['stopDistancePct', 'Stop Distance %', '0', '0.1'],
       ['rewardRiskRatio', 'Reward/Risk', '0', '0.25'],
       ['maxPositionNotional', 'Max Position Notional', '0', '1000'],
+      ['maxSessionDrawdownPct', 'Max Session Drawdown %', '0', '0.25', '100'],
+      ['currentSessionDrawdownPct', 'Current Drawdown %', '0', '0.25', '100'],
+      ['maxRegimeVolatilityPct', 'Max Regime Volatility %', '0', '0.25', '100'],
     ],
   },
   {
@@ -48,6 +51,15 @@ const TRADE_TOGGLES = [
   ['allowSell', 'Sell'],
   ['includePulsePacket', 'Pulse'],
   ['requireSourceCoverageComplete', 'Source Gate'],
+  ['useVolatilityAdjustedStop', 'Vol Stop'],
+];
+
+const REGIME_TOGGLES = [
+  ['allowTrendUp', 'Trend Up'],
+  ['allowTrendDown', 'Trend Down'],
+  ['allowRangeBound', 'Range'],
+  ['allowHighVolatility', 'High Vol'],
+  ['allowInsufficientDataRegime', 'No Data'],
 ];
 
 const CONFIRMATION_TOGGLES = [
@@ -206,6 +218,23 @@ export const TradeIntentView = () => {
 
           <div className="grid grid-cols-2 gap-2">
             {TRADE_TOGGLES.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => updateControl(key, !controls[key])}
+                className={`px-3 py-2 rounded-lg border text-sm transition-all ${
+                  controls[key]
+                    ? 'border-accent-cyan bg-dark-700 text-white'
+                    : 'border-dark-600 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {REGIME_TOGGLES.map(([key, label]) => (
               <button
                 key={key}
                 type="button"

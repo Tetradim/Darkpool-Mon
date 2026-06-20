@@ -107,9 +107,23 @@ export const formatRiskPlanSummary = (riskPlan) => {
     Number.isFinite(estimatedLoss) && Number.isFinite(estimatedGain)
       ? `, est loss ${formatIntentMoney(estimatedLoss)}, est gain ${formatIntentMoney(estimatedGain)}`
       : '';
-  return `${actionPrefix}${riskPlan.estimated_shares} shares${entrySummary}, stop $${Number(riskPlan.stop_price).toFixed(2)}, target $${Number(
+  const stopSummary = riskPlan.volatility_adjusted
+    ? `, stop $${Number(riskPlan.stop_price).toFixed(2)} (${Number(riskPlan.stop_distance_pct).toFixed(2)}% volatility-adjusted)`
+    : `, stop $${Number(riskPlan.stop_price).toFixed(2)}`;
+  return `${actionPrefix}${riskPlan.estimated_shares} shares${entrySummary}${stopSummary}, target $${Number(
     riskPlan.target_price
   ).toFixed(2)}${perShareSummary}${estimateSummary}, max risk ${formatIntentMoney(riskPlan.max_risk_dollars)}.`;
+};
+
+export const formatMarketRegime = (regime) => {
+  if (!regime) {
+    return 'Market regime unavailable.';
+  }
+  const label = String(regime.regime || 'unknown').replaceAll('_', ' ');
+  const trend = String(regime.trend_bias || 'neutral');
+  return `${label}: ${trend} bias, ${Number(regime.realized_range_pct).toFixed(2)}% range, ${Number(
+    regime.momentum_pct
+  ).toFixed(2)}% momentum, ${Number(regime.volume_imbalance).toFixed(2)} volume imbalance.`;
 };
 
 export const formatConfirmationSummary = (confirmation) => {

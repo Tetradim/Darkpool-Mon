@@ -17,6 +17,11 @@ This is an intelligence and alerting tool. It does not auto-trade and should not
 - Trade-intent gate with user-adjustable score, distance, notional, freshness, risk, signal-quality, and source-confirmation controls before Sentinel Edge confirmation and Pulse packet preparation.
 - Confidence attribution for trade intents, showing dark pool level strength, price proximity, exposure alignment, options flow, print clustering, and freshness contributions.
 - Signal quality flags for trade intents, showing whether dark pool side bias, options flow, and exposure evidence support, conflict with, or are missing from the candidate action.
+- Risk envelopes for trade intents with candidate side, entry, stop, target, whole-share sizing, share-rounded notional, per-share risk/reward, estimated loss, and estimated gain.
+- Market-regime controls that classify trend-up, trend-down, range-bound, high-volatility, or insufficient-data conditions from recent prints before Sentinel review.
+- Session drawdown, volatility-cap, allowed-regime, and volatility-adjusted-stop gates based on common crypto-bot risk-management patterns.
+- Source-confirmation coverage planning for price/NBBO, liquidity/depth, halt/LULD, material-news, and optional options-flow confirmation before Pulse packet preparation.
+- Pulse handoff guardrails that require Sentinel Edge approval, explicit manual execution, risk checks, source-coverage audit metadata, and rejection of live-order packet keys.
 - Python and frontend test coverage for provider behavior, route smoke checks, options endpoints, alerting, confluence, level clustering, Discord command handling, z-scores, CSV export, and frontend build.
 
 ## Production Posture
@@ -75,6 +80,8 @@ python discord_bot.py
 - `POLYGON_API_KEY`: optional future market-data integration.
 - `INTRINIO_API_KEY`: optional future market-data integration.
 - `UNUSUAL_WHALES_API_KEY`: optional future options-flow/GEX integration.
+- `NASDAQ_HALTS_RSS_ENABLED`: set to `true` when a halt/LULD confirmation adapter is configured.
+- `SEC_EDGAR_USER_AGENT`: SEC EDGAR user-agent string used to mark material-news source coverage as configured.
 - `DISCORD_BOT_TOKEN`: Discord bot token.
 - `DISCORD_GUILD_ID`: optional guild ID for faster command sync during development.
 - `DISCORD_PUBLIC_KEY`: Discord application public key for verifying HTTP interaction signatures.
@@ -106,7 +113,7 @@ Dark pool intelligence:
 - `GET /darkpool/confluence?symbol=AAPL&provider=demo`
 - `GET /darkpool/alert-candidates?symbol=AAPL&provider=demo`
 - `GET /darkpool/information-sources?active_provider=finra`
-- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&max_quality_caution_flags=99&min_quality_support_flags=0&min_source_confirmation_weight=0&require_source_coverage_complete=true&source_coverage_override_reason=manual-review&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
+- `GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=75&max_distance_pct=1&min_notional=25000000&max_risk_dollars=500&stop_distance_pct=1&reward_risk_ratio=2&max_position_notional=50000&max_session_drawdown_pct=5&current_session_drawdown_pct=0&max_regime_volatility_pct=10&allow_trend_up=true&allow_trend_down=true&allow_range_bound=true&allow_high_volatility=false&use_volatility_adjusted_stop=true&max_quality_caution_flags=99&min_quality_support_flags=0&min_source_confirmation_weight=0&require_source_coverage_complete=true&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=25`
 
 Scanner and visualization:
 
@@ -165,18 +172,35 @@ Discord integration:
 
 ## Trade Intent Gate
 
-`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, max position notional, max quality caution flags, minimum quality support flags, minimum configured source confirmation weight, required source-coverage completion, and source-coverage override reason.
+`GET /darkpool/trade-intent` turns the strongest confluence score into a user-readable intent report. It applies user-controlled thresholds for minimum score, maximum distance from spot, minimum notional value, maximum level freshness, allowed buy/sell sides, max risk dollars, stop distance, reward/risk ratio, max position notional, maximum session drawdown, maximum market-regime volatility, allowed market regimes, volatility-adjusted stops, max quality caution flags, minimum quality support flags, minimum configured source confirmation weight, required source-coverage completion, and source-coverage override reason.
 
-The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, signal-quality gates, allowed buy/sell sides, required source-coverage completion, source-coverage override reason, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion. The view also shows the source confirmation plan and Sentinel checklist used to approve or reject Pulse preparation.
+The React dashboard exposes the same workflow in the `Intent` view, with controls for symbol, provider, confidence threshold, distance threshold, notional threshold, level freshness, risk envelope, session drawdown, regime volatility cap, allowed regimes, volatility-adjusted stops, signal-quality gates, allowed buy/sell sides, required source-coverage completion, source-coverage override reason, Sentinel confirmation checks, spread guardrails, and Pulse packet inclusion. The view also shows the market regime, source confirmation plan, and Sentinel checklist used to approve or reject Pulse preparation.
+
+Recommended operator flow:
+
+1. Review `/darkpool/information-sources` or the dashboard source plan for missing required source families.
+2. Check the market-regime summary for range, momentum, volume imbalance, and trend bias.
+3. Build a trade intent with source coverage required and high-volatility regimes disabled by default.
+4. If the intent is blocked, resolve missing price/NBBO, liquidity/depth, halt/LULD, material-news coverage, drawdown, or regime blockers before Sentinel review.
+5. Use `require_source_coverage_complete=false` only for an audited demo or manual-vendor-review exception, and provide `source_coverage_override_reason`.
+6. Confirm price, liquidity, news, and spread through Sentinel Edge before requesting any Pulse packet.
+7. Treat a prepared Pulse packet as a manual review packet only. It is not a live order.
+
+Audited source-coverage override example:
+
+```text
+GET /darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60&max_distance_pct=2&min_notional=1000000&require_source_coverage_complete=false&source_coverage_override_reason=manual-vendor-check-complete&price_confirmed=true&liquidity_confirmed=true&news_checked=true&observed_spread_bps=5&max_spread_bps=20&include_pulse_packet=true
+```
 
 The endpoint returns:
 
 - `intent`: a readable `BUY`, `SELL`, or safe `HOLD` outcome with reasons and blockers.
+- `market_regime`: print-derived trend and volatility context used by the regime gates.
 - `intent.confidence_breakdown`: component-level score attribution for operator review before confirmation.
 - `intent.source_confirmation_weight` and `intent.source_adjusted_confidence`: configured confirmation-source coverage on a normalized `0.00` to `1.00` scale and the raw confluence confidence discounted by that coverage. Raw `intent.confidence` is still returned so operators can separate pattern strength from source confirmation strength.
 - `intent.missing_required_source_coverage`: structured labels for missing required source families when the source-coverage gate blocks the intent.
 - `intent.quality_flags`: support, caution, and missing-data flags for dark pool side bias, options flow, and exposure evidence. `max_quality_caution_flags` and `min_quality_support_flags` can block an intent before Sentinel approval.
-- `intent.risk_plan`: a planning envelope with the candidate `planned_action`, entry price, estimated whole shares, share-rounded notional, per-share risk/reward, entry-to-stop estimated loss, entry-to-target estimated gain, max risk, stop, and target. The stop is anchored from the darkpool level, and the target is derived from entry-to-stop risk and the configured reward/risk ratio. When sizing inputs are valid, blocked intents can still include this envelope for review; it is not an order and does not bypass Sentinel or Pulse guardrails.
+- `intent.risk_plan`: a planning envelope with the candidate `planned_action`, entry price, estimated whole shares, share-rounded notional, per-share risk/reward, entry-to-stop estimated loss, entry-to-target estimated gain, max risk, requested stop distance, effective stop distance, volatility-adjustment metadata, stop, and target. The stop is anchored from the darkpool level, can be widened by the regime volatility buffer, and the target is derived from entry-to-stop risk and the configured reward/risk ratio. When sizing inputs are valid, blocked intents can still include this envelope for review; it is not an order and does not bypass Sentinel or Pulse guardrails.
 - `confirmation_sources`: source-quality plan showing delayed context sources, live confirmation sources, missing adapters, role-level coverage, and recommended next integrations. The available and missing confirmation weights are normalized to a `0.00` to `1.00` operator-readiness scale. `min_source_confirmation_weight` can block an intent until enough source coverage is configured.
 - `confirmation_sources.coverage`: `met`, `partial`, or `missing` coverage for dark pool context, price/NBBO confirmation, liquidity/depth confirmation, options confirmation, halt/LULD blockers, and material-news context. Required coverage must be met before the plan is considered complete.
 - `preferences.require_complete_source_coverage`: enabled by default. When true, missing required price, liquidity, halt/LULD, or material-news coverage blocks the intent before Sentinel can approve Pulse packet preparation.
@@ -184,12 +208,12 @@ The endpoint returns:
 - Source-coverage blockers name the missing required families, so Pulse status reasons show whether the operator needs price/NBBO, liquidity/depth, halt/LULD, material-news coverage, or multiple source families before review can proceed.
 - `sentinel`: a Sentinel Edge decision. The local adapter approves only intents that pass every user threshold and have price confirmation, liquidity confirmation, news check, and an observed spread within the configured maximum.
 - `sentinel.checks`: named pass/fail checklist entries for intent readiness, price confirmation, liquidity confirmation, news check, and spread guard.
-- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, raw confidence, source-adjusted confidence, confidence breakdown, quality flags, source-coverage checklist, and Sentinel checklist for manual execution review.
+- `pulse_packet`: a prepared Pulse communication packet only when `include_pulse_packet=true` and Sentinel approved the intent. Approved packets include the risk plan, raw confidence, source-adjusted confidence, confidence breakdown, quality flags, source-coverage checklist, optional source-coverage override reason, and Sentinel checklist for manual execution review.
 - `pulse_status`: explicit Pulse readiness metadata with `prepared`, `withheld`, `not_requested`, or `unavailable` status, a user-readable message, blocker reasons, Sentinel status, and `requires_manual_execution=true`.
 
 Pulse packets are not orders. They carry `requires_manual_execution=true` and are intended for confirmation workflow wiring, not autonomous live trading. If any Sentinel confirmation check is missing or the spread is too wide, the packet is withheld and `pulse_status.reasons` explains why.
 
-The dashboard Pulse summary shows raw confidence alongside source-adjusted confidence when a packet is available, so manual reviewers can see how much confirmation-source coverage discounted the original confluence score before considering any Pulse handoff. If a packet was prepared while required source coverage remains incomplete, the summary also names the missing source families so override-based review cannot look fully confirmed.
+The dashboard Pulse summary shows raw confidence alongside source-adjusted confidence when a packet is available, so manual reviewers can see how much confirmation-source coverage discounted the original confluence score before considering any Pulse handoff. If a packet was prepared while required source coverage remains incomplete, the summary names the missing source families and the operator override reason so override-based review cannot look fully confirmed.
 
 ## Testing
 
@@ -257,10 +281,16 @@ Feature direction was informed by public documentation and product behavior from
 - Tradytics Discord bots: https://tradytics.com/discord
 - InsiderFinance Discord bot docs: https://www.insiderfinance.io/docs/discord-bot
 - BlackBoxStocks features: https://blackboxstocks.com/features/
+- Crypto bot risk-management patterns: https://3commas.io/blog/ai-trading-bot-risk-management-guide
+- Crypto bot setting discipline for ranges, stop loss, and take profit: https://bitsgap.com/blog/how-to-choose-crypto-trading-bot-settings-in-2026-range-investment-stop-loss-and-take-profit
+- Trend-following and mean-reversion in Bitcoin research: https://quantpedia.com/trend-following-and-mean-reversion-in-bitcoin/
+- AI trading bot architecture and backtesting guidance: https://www.alchemy.com/blog/how-to-build-an-ai-trading-bot
 
 ## Next Production Steps
 
 - Add a paid provider adapter for Unusual Whales or another licensed source for live dark pool prints, options flow, GEX, VEX, halts, and news.
+- Add crypto exchange provider adapters for market data, paper trading, and strict read-only/live-trading separation.
+- Add strategy backtesting metrics for win rate, profit factor, Sharpe-like risk-adjusted return, max drawdown, and out-of-sample validation.
 - Persist normalized events and aggregates in PostgreSQL or TimescaleDB.
 - Add Docker Compose for backend, frontend, and database.
 - Add websocket push from backend alert candidates to the dashboard.

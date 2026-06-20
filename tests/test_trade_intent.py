@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server
-from darkpool.models import ConfluenceScore, DarkpoolLevel, ExposureNode, OptionsFlowSignal
+from darkpool.models import ConfluenceScore, DarkpoolLevel, ExposureNode, MarketRegime, OptionsFlowSignal
 from darkpool.trade_intent import (
     LocalSentinelEdgeAdapter,
     SentinelConfirmation,
@@ -50,6 +50,20 @@ def _score(
         exposure_nodes=exposure_nodes or [],
         options_flow=options_flow or [],
         reasons=["dark pool cluster strength 92.0", "fresh level", "options flow confirmation present"],
+    )
+
+
+def _regime(regime: str = "trend_up", realized_range_pct: float = 3.0) -> MarketRegime:
+    return MarketRegime(
+        symbol="AAPL",
+        regime=regime,
+        trend_bias="bullish" if regime == "trend_up" else "neutral",
+        realized_range_pct=realized_range_pct,
+        momentum_pct=1.2,
+        vwap=179.0,
+        volume_imbalance=0.2,
+        print_count=25,
+        reasons=["test regime"],
     )
 
 
@@ -421,6 +435,51 @@ def test_trade_intent_blocks_when_risk_controls_are_invalid():
     assert any("stop distance" in blocker for blocker in intent.blockers)
 
 
+def test_trade_intent_blocks_when_session_drawdown_or_regime_limits_fail():
+    preferences = TradingPreferences(
+        min_score=80,
+        max_distance_pct=1.0,
+        min_notional=50_000_000,
+        max_session_drawdown_pct=3.0,
+        current_session_drawdown_pct=4.25,
+        max_regime_volatility_pct=6.0,
+        allowed_market_regimes=["trend_up", "trend_down", "range_bound"],
+    )
+
+    intent = build_trade_intent(
+        _score(),
+        preferences,
+        market_regime=_regime(regime="high_volatility", realized_range_pct=8.4),
+    )
+
+    assert intent.status == "blocked"
+    assert any("session drawdown 4.25%" in blocker for blocker in intent.blockers)
+    assert any("market regime high_volatility" in blocker for blocker in intent.blockers)
+    assert any("regime volatility 8.40%" in blocker for blocker in intent.blockers)
+
+
+def test_trade_intent_can_widen_stop_with_volatility_regime_buffer():
+    intent = build_trade_intent(
+        _score(),
+        TradingPreferences(
+            min_score=80,
+            max_distance_pct=1.0,
+            min_notional=50_000_000,
+            stop_distance_pct=1.0,
+            max_position_notional=100_000,
+            allowed_market_regimes=["trend_up"],
+        ),
+        market_regime=_regime(regime="trend_up", realized_range_pct=5.0),
+    )
+
+    assert intent.risk_plan is not None
+    assert intent.risk_plan.requested_stop_distance_pct == 1.0
+    assert intent.risk_plan.stop_distance_pct == 1.75
+    assert intent.risk_plan.volatility_adjusted is True
+    assert intent.risk_plan.market_regime == "trend_up"
+    assert any("volatility buffer" in note for note in intent.risk_plan.notes)
+
+
 def test_pulse_packet_rejects_missing_or_failed_sentinel_confirmation():
     preferences = TradingPreferences(min_score=80, max_distance_pct=1.0, min_notional=50_000_000)
     intent = build_trade_intent(_score(score=79.0), preferences)
@@ -609,6 +668,26 @@ def test_trade_intent_endpoint_blocks_when_source_confirmation_requirement_is_no
     assert body["sentinel"]["status"] == "rejected"
     assert body["pulse_packet"] is None
     assert any("source confirmation weight" in blocker for blocker in body["intent"]["blockers"])
+
+
+def test_trade_intent_endpoint_exposes_market_regime_and_blocks_on_low_volatility_limit():
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/darkpool/trade-intent?symbol=AAPL&provider=demo&min_score=60"
+        "&max_distance_pct=2.0&min_notional=1000000&include_pulse_packet=true"
+        "&require_source_coverage_complete=false"
+        "&source_coverage_override_reason=Manual%20vendor%20check%20completed"
+        "&price_confirmed=true&liquidity_confirmed=true&news_checked=true"
+        "&max_regime_volatility_pct=1"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["market_regime"]["print_count"] > 0
+    assert body["intent"]["market_regime"]["regime"] == body["market_regime"]["regime"]
+    assert body["intent"]["status"] == "blocked"
+    assert any("regime volatility" in blocker for blocker in body["intent"]["blockers"])
 
 
 def test_trade_intent_endpoint_rejects_source_confirmation_threshold_above_full_coverage():

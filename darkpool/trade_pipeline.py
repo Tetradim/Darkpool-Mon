@@ -123,6 +123,7 @@ async def build_trade_intent_report(
         source_confirmation_weight=context.confirmation_plan.available_confirmation_weight,
         source_coverage_complete=context.confirmation_plan.required_coverage_complete,
         missing_required_source_coverage=missing_required_coverage,
+        market_regime=context.market_regime,
     )
     sentinel = LocalSentinelEdgeAdapter().review(intent, confirmation)
     pulse_packet = None

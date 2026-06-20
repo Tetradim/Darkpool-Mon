@@ -14,6 +14,7 @@ import {
   formatSourceConfirmationPlan,
   formatSourceAdjustedConfidence,
   formatIntentMoney,
+  formatMarketRegime,
   getIntentTone,
   summarizePulsePacket,
 } from './tradeIntent';
@@ -101,10 +102,19 @@ describe('buildTradeIntentUrl', () => {
       allowBuy: true,
       allowSell: false,
       includePulsePacket: true,
+      maxSessionDrawdownPct: 4,
+      currentSessionDrawdownPct: 1.25,
+      maxRegimeVolatilityPct: 9,
+      allowTrendUp: true,
+      allowTrendDown: true,
+      allowRangeBound: false,
+      allowHighVolatility: true,
+      allowInsufficientDataRegime: false,
+      useVolatilityAdjustedStop: false,
     });
 
     expect(url).toBe(
-      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&max_quality_caution_flags=2&min_quality_support_flags=1&min_source_confirmation_weight=0.35&require_source_coverage_complete=true&source_coverage_override_reason=manual-check&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&include_pulse_packet=true'
+      '/darkpool/trade-intent?symbol=NVDA&provider=demo&min_score=82&max_distance_pct=0.75&min_notional=50000000&max_freshness_minutes=45&max_risk_dollars=750&stop_distance_pct=1.2&reward_risk_ratio=2.5&max_position_notional=40000&max_session_drawdown_pct=4&current_session_drawdown_pct=1.25&max_regime_volatility_pct=9&max_quality_caution_flags=2&min_quality_support_flags=1&min_source_confirmation_weight=0.35&require_source_coverage_complete=true&source_coverage_override_reason=manual-check&price_confirmed=true&liquidity_confirmed=false&news_checked=true&observed_spread_bps=7&max_spread_bps=18&allow_buy=true&allow_sell=false&allow_trend_up=true&allow_trend_down=true&allow_range_bound=false&allow_high_volatility=true&allow_insufficient_data_regime=false&use_volatility_adjusted_stop=false&include_pulse_packet=true'
     );
   });
 
@@ -116,6 +126,39 @@ describe('buildTradeIntentUrl', () => {
 
     expect(highParams.get('min_source_confirmation_weight')).toBe('1');
     expect(lowParams.get('min_source_confirmation_weight')).toBe('0');
+  });
+
+  it('includes volatility-adjusted stop context when present', () => {
+    expect(
+      formatRiskPlanSummary({
+        planned_action: 'BUY',
+        estimated_shares: 100,
+        entry_price: 180,
+        stop_price: 176.4,
+        target_price: 187.2,
+        max_risk_dollars: 500,
+        stop_distance_pct: 2,
+        volatility_adjusted: true,
+      })
+    ).toBe('BUY plan: 100 shares, entry $180.00, stop $176.40 (2.00% volatility-adjusted), target $187.20, max risk $500.');
+  });
+});
+
+describe('formatMarketRegime', () => {
+  it('summarizes missing market regime as unavailable', () => {
+    expect(formatMarketRegime(null)).toBe('Market regime unavailable.');
+  });
+
+  it('formats regime, bias, range, momentum, and imbalance for scanning', () => {
+    expect(
+      formatMarketRegime({
+        regime: 'trend_up',
+        trend_bias: 'bullish',
+        realized_range_pct: 3.25,
+        momentum_pct: 1.4,
+        volume_imbalance: 0.22,
+      })
+    ).toBe('trend up: bullish bias, 3.25% range, 1.40% momentum, 0.22 volume imbalance.');
   });
 });
 

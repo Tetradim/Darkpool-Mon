@@ -16,6 +16,7 @@ from darkpool.confluence import classify_exposure_nodes, score_confluence
 from darkpool.fixtures import get_stock, sample_exposure_nodes, sample_options_flow
 from darkpool.level_engine import cluster_darkpool_levels, detect_air_pockets
 from darkpool.providers import ProviderError, fetch_provider_result, get_provider_capability
+from darkpool.regime import analyze_market_regime
 from darkpool.source_catalog import build_trade_confirmation_plan, list_market_information_sources
 from darkpool.trade_intent import SentinelConfirmation, TradingPreferences
 from darkpool.trade_pipeline import build_trade_intent_report
@@ -228,6 +229,7 @@ async def get_darkpool_levels(
         "spot_price": spot,
         "levels": [level.model_dump(mode="json") for level in levels],
         "air_pockets": detect_air_pockets(levels, spot),
+        "market_regime": analyze_market_regime(symbol, provider_result.prints, spot).model_dump(mode="json"),
         "fetched_at": datetime.utcnow().isoformat(),
     }
 
@@ -252,6 +254,7 @@ async def get_darkpool_confluence(
     options_flow = sample_options_flow(symbol)
     scores = score_confluence(symbol, spot, levels, exposure_nodes, options_flow)[:limit]
     node_map = classify_exposure_nodes(symbol, spot, exposure_nodes)
+    market_regime = analyze_market_regime(symbol, provider_result.prints, spot)
 
     return {
         "symbol": symbol.upper(),
@@ -265,6 +268,7 @@ async def get_darkpool_confluence(
             ] if isinstance(value, list) else value
             for key, value in node_map.items()
         },
+        "market_regime": market_regime.model_dump(mode="json"),
         "scores": [score.model_dump(mode="json") for score in scores],
         "fetched_at": datetime.utcnow().isoformat(),
     }
@@ -324,6 +328,15 @@ async def get_darkpool_trade_intent(
     stop_distance_pct: float = Query(1.0, ge=0, le=20),
     reward_risk_ratio: float = Query(2.0, ge=0),
     max_position_notional: float = Query(50_000.0, ge=0),
+    max_session_drawdown_pct: float = Query(5.0, ge=0, le=100),
+    current_session_drawdown_pct: float = Query(0.0, ge=0, le=100),
+    max_regime_volatility_pct: float = Query(10.0, ge=0, le=100),
+    allow_trend_up: bool = Query(True),
+    allow_trend_down: bool = Query(True),
+    allow_range_bound: bool = Query(True),
+    allow_high_volatility: bool = Query(False),
+    allow_insufficient_data_regime: bool = Query(False),
+    use_volatility_adjusted_stop: bool = Query(True),
     max_quality_caution_flags: int = Query(99, ge=0),
     min_quality_support_flags: int = Query(0, ge=0),
     min_source_confirmation_weight: float = Query(0.0, ge=0, le=1),
@@ -349,6 +362,21 @@ async def get_darkpool_trade_intent(
         stop_distance_pct=stop_distance_pct,
         reward_risk_ratio=reward_risk_ratio,
         max_position_notional=max_position_notional,
+        max_session_drawdown_pct=max_session_drawdown_pct,
+        current_session_drawdown_pct=current_session_drawdown_pct,
+        max_regime_volatility_pct=max_regime_volatility_pct,
+        allowed_market_regimes=[
+            regime
+            for regime, enabled in [
+                ("trend_up", allow_trend_up),
+                ("trend_down", allow_trend_down),
+                ("range_bound", allow_range_bound),
+                ("high_volatility", allow_high_volatility),
+                ("insufficient_data", allow_insufficient_data_regime),
+            ]
+            if enabled
+        ],
+        use_volatility_adjusted_stop=use_volatility_adjusted_stop,
         max_quality_caution_flags=max_quality_caution_flags,
         min_quality_support_flags=min_quality_support_flags,
         min_source_confirmation_weight=min_source_confirmation_weight,
@@ -390,6 +418,7 @@ async def get_darkpool_trade_intent(
             "message": provider_result.message,
             "preferences": preferences.model_dump(mode="json"),
             "confirmation_sources": confirmation_sources.model_dump(mode="json"),
+            "market_regime": context.market_regime.model_dump(mode="json"),
             "intent": None,
             "sentinel": None,
             "pulse_packet": None,
@@ -410,6 +439,7 @@ async def get_darkpool_trade_intent(
         "message": provider_result.message,
         "preferences": preferences.model_dump(mode="json"),
         "confirmation_sources": confirmation_sources.model_dump(mode="json"),
+        "market_regime": context.market_regime.model_dump(mode="json"),
         "intent": report.intent.model_dump(mode="json") if report.intent else None,
         "sentinel": report.sentinel.model_dump(mode="json") if report.sentinel else None,
         "pulse_packet": report.pulse_packet,

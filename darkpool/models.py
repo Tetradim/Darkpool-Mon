@@ -66,6 +66,18 @@ class OptionsFlowSignal(BaseModel):
     aggressor: bool = False
 
 
+class MarketRegime(BaseModel):
+    symbol: str
+    regime: Literal["trend_up", "trend_down", "range_bound", "high_volatility", "insufficient_data"]
+    trend_bias: Literal["bullish", "bearish", "neutral"]
+    realized_range_pct: float
+    momentum_pct: float
+    vwap: float | None = None
+    volume_imbalance: float
+    print_count: int
+    reasons: list[str] = Field(default_factory=list)
+
+
 class ConfluenceScore(BaseModel):
     symbol: str
     level_price: float

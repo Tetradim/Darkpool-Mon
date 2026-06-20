@@ -9,6 +9,9 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   stopDistancePct: 1,
   rewardRiskRatio: 2,
   maxPositionNotional: 50000,
+  maxSessionDrawdownPct: 5,
+  currentSessionDrawdownPct: 0,
+  maxRegimeVolatilityPct: 10,
   maxQualityCautionFlags: 99,
   minQualitySupportFlags: 0,
   minSourceConfirmationWeight: 0,
@@ -21,6 +24,12 @@ export const DEFAULT_TRADE_INTENT_SETTINGS = {
   maxSpreadBps: 25,
   allowBuy: true,
   allowSell: true,
+  allowTrendUp: true,
+  allowTrendDown: true,
+  allowRangeBound: true,
+  allowHighVolatility: false,
+  allowInsufficientDataRegime: false,
+  useVolatilityAdjustedStop: true,
   includePulsePacket: true,
 };
 
@@ -158,6 +167,18 @@ export const buildTradeIntentUrl = (settings = {}) => {
     String(asNumber(merged.maxPositionNotional, DEFAULT_TRADE_INTENT_SETTINGS.maxPositionNotional))
   );
   params.set(
+    'max_session_drawdown_pct',
+    String(asNumber(merged.maxSessionDrawdownPct, DEFAULT_TRADE_INTENT_SETTINGS.maxSessionDrawdownPct))
+  );
+  params.set(
+    'current_session_drawdown_pct',
+    String(asNumber(merged.currentSessionDrawdownPct, DEFAULT_TRADE_INTENT_SETTINGS.currentSessionDrawdownPct))
+  );
+  params.set(
+    'max_regime_volatility_pct',
+    String(asNumber(merged.maxRegimeVolatilityPct, DEFAULT_TRADE_INTENT_SETTINGS.maxRegimeVolatilityPct))
+  );
+  params.set(
     'max_quality_caution_flags',
     String(asNumber(merged.maxQualityCautionFlags, DEFAULT_TRADE_INTENT_SETTINGS.maxQualityCautionFlags))
   );
@@ -184,6 +205,12 @@ export const buildTradeIntentUrl = (settings = {}) => {
   params.set('max_spread_bps', String(asNumber(merged.maxSpreadBps, DEFAULT_TRADE_INTENT_SETTINGS.maxSpreadBps)));
   params.set('allow_buy', String(Boolean(merged.allowBuy)));
   params.set('allow_sell', String(Boolean(merged.allowSell)));
+  params.set('allow_trend_up', String(Boolean(merged.allowTrendUp)));
+  params.set('allow_trend_down', String(Boolean(merged.allowTrendDown)));
+  params.set('allow_range_bound', String(Boolean(merged.allowRangeBound)));
+  params.set('allow_high_volatility', String(Boolean(merged.allowHighVolatility)));
+  params.set('allow_insufficient_data_regime', String(Boolean(merged.allowInsufficientDataRegime)));
+  params.set('use_volatility_adjusted_stop', String(Boolean(merged.useVolatilityAdjustedStop)));
   params.set('include_pulse_packet', String(Boolean(merged.includePulsePacket)));
   return `/darkpool/trade-intent?${params.toString()}`;
 };

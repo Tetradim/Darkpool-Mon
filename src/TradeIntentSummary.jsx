@@ -3,6 +3,7 @@ import {
   formatConfirmationSummary,
   formatConfidenceBreakdown,
   formatIntentMoney,
+  formatMarketRegime,
   formatMissingSourceCoverage,
   formatQualityFlags,
   formatRiskPlanSummary,
@@ -197,6 +198,14 @@ export const TradeIntentSummary = ({
           </div>
           <p className="text-sm text-gray-200">{summarizePulsePacket(pulsePacket, pulseStatus)}</p>
         </div>
+      </div>
+
+      <div className="bg-dark-700 rounded-lg p-4">
+        <div className="text-xs text-gray-500 mb-2">Market Regime</div>
+        <p className="text-sm text-gray-200">{formatMarketRegime(intent.market_regime)}</p>
+        {intent.market_regime?.reasons?.length > 0 && (
+          <p className="text-xs text-gray-500 mt-2">{intent.market_regime.reasons.join(' ')}</p>
+        )}
       </div>
     </>
   );

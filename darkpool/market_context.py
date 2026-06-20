@@ -8,8 +8,9 @@ from .alerting import build_alert_candidates
 from .confluence import score_confluence
 from .fixtures import get_stock, sample_exposure_nodes, sample_options_flow
 from .level_engine import cluster_darkpool_levels
-from .models import AlertCandidate, ConfluenceScore, DarkpoolLevel, DarkpoolPrint, ExposureNode, OptionsFlowSignal
+from .models import AlertCandidate, ConfluenceScore, DarkpoolLevel, DarkpoolPrint, ExposureNode, MarketRegime, OptionsFlowSignal
 from .providers import ProviderResult, fetch_provider_result
+from .regime import analyze_market_regime
 from .source_catalog import TradeConfirmationPlan, build_trade_confirmation_plan
 
 
@@ -22,6 +23,7 @@ class MarketContext:
     levels: list[DarkpoolLevel]
     exposure_nodes: list[ExposureNode]
     options_flow: list[OptionsFlowSignal]
+    market_regime: MarketRegime
     scores: list[ConfluenceScore]
     alerts: list[AlertCandidate]
     confirmation_plan: TradeConfirmationPlan
@@ -41,6 +43,7 @@ async def build_market_context(
     levels = cluster_darkpool_levels(provider_result.prints, price_bucket=price_bucket)
     exposure_nodes = sample_exposure_nodes(sym, spot)
     options_flow = sample_options_flow(sym)
+    market_regime = analyze_market_regime(sym, provider_result.prints, spot)
     scores = score_confluence(sym, spot, levels, exposure_nodes, options_flow)
     alerts = build_alert_candidates(sym, levels, scores)
     confirmation_plan = build_trade_confirmation_plan(
@@ -56,6 +59,7 @@ async def build_market_context(
         levels=levels,
         exposure_nodes=exposure_nodes,
         options_flow=options_flow,
+        market_regime=market_regime,
         scores=scores,
         alerts=alerts,
         confirmation_plan=confirmation_plan,

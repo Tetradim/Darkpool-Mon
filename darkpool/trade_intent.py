@@ -9,7 +9,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from .models import ConfluenceScore
+from .models import ConfluenceScore, MarketRegime
 
 
 TradeAction = Literal["BUY", "SELL", "HOLD"]
@@ -28,6 +28,13 @@ class TradingPreferences(BaseModel):
     stop_distance_pct: float = Field(default=1.0, ge=0)
     reward_risk_ratio: float = Field(default=2.0, ge=0)
     max_position_notional: float = Field(default=50_000.0, ge=0)
+    max_session_drawdown_pct: float = Field(default=5.0, ge=0, le=100)
+    current_session_drawdown_pct: float = Field(default=0.0, ge=0, le=100)
+    max_regime_volatility_pct: float = Field(default=10.0, ge=0, le=100)
+    allowed_market_regimes: list[
+        Literal["trend_up", "trend_down", "range_bound", "high_volatility", "insufficient_data"]
+    ] = Field(default_factory=lambda: ["trend_up", "trend_down", "range_bound"])
+    use_volatility_adjusted_stop: bool = True
     max_quality_caution_flags: int = Field(default=99, ge=0)
     min_quality_support_flags: int = Field(default=0, ge=0)
     min_source_confirmation_weight: float = Field(default=0.0, ge=0, le=1)
@@ -42,6 +49,9 @@ class RiskPlan(BaseModel):
     entry_price: float
     max_risk_dollars: float
     stop_distance_pct: float
+    requested_stop_distance_pct: float
+    volatility_adjusted: bool = False
+    market_regime: str | None = None
     reward_risk_ratio: float
     max_position_notional: float
     position_notional: float
@@ -103,6 +113,7 @@ class TradeIntent(BaseModel):
     risk_plan: RiskPlan | None = None
     confidence_breakdown: list[ConfidenceComponent]
     quality_flags: list[QualityFlag]
+    market_regime: MarketRegime | None = None
 
 
 class SentinelDecision(BaseModel):
@@ -133,7 +144,22 @@ def _stable_id(*parts: object) -> str:
     return digest[:16]
 
 
-def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: TradingPreferences, blockers: list[str]) -> RiskPlan | None:
+def _effective_stop_distance_pct(preferences: TradingPreferences, market_regime: MarketRegime | None) -> tuple[float, bool]:
+    if not preferences.use_volatility_adjusted_stop or market_regime is None:
+        return float(preferences.stop_distance_pct), False
+    if market_regime.regime in {"high_volatility", "trend_up", "trend_down"}:
+        adjusted = max(float(preferences.stop_distance_pct), round(market_regime.realized_range_pct * 0.35, 2))
+        return adjusted, adjusted != float(preferences.stop_distance_pct)
+    return float(preferences.stop_distance_pct), False
+
+
+def _build_risk_plan(
+    score: ConfluenceScore,
+    action: TradeAction,
+    preferences: TradingPreferences,
+    blockers: list[str],
+    market_regime: MarketRegime | None = None,
+) -> RiskPlan | None:
     if action not in {"BUY", "SELL"}:
         return None
     if preferences.max_risk_dollars <= 0:
@@ -149,7 +175,8 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
     if blockers:
         return None
 
-    stop_fraction = preferences.stop_distance_pct / 100
+    effective_stop_pct, volatility_adjusted = _effective_stop_distance_pct(preferences, market_regime)
+    stop_fraction = effective_stop_pct / 100
     if action == "BUY":
         stop_price = score.level_price * (1 - stop_fraction)
     else:
@@ -173,6 +200,8 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
     position_notional = estimated_shares * score.spot_price
 
     notes = ["position sizing is a planning envelope, not an order"]
+    if volatility_adjusted:
+        notes.append("stop distance widened by market-regime volatility buffer")
     if estimated_shares == notional_limited_shares and notional_limited_shares < risk_limited_shares:
         notes.append("position capped by max position notional")
     if estimated_shares < risk_limited_shares or estimated_shares < notional_limited_shares:
@@ -184,7 +213,10 @@ def _build_risk_plan(score: ConfluenceScore, action: TradeAction, preferences: T
         planned_action=action,
         entry_price=round(score.spot_price, 2),
         max_risk_dollars=float(preferences.max_risk_dollars),
-        stop_distance_pct=float(preferences.stop_distance_pct),
+        stop_distance_pct=float(effective_stop_pct),
+        requested_stop_distance_pct=float(preferences.stop_distance_pct),
+        volatility_adjusted=volatility_adjusted,
+        market_regime=market_regime.regime if market_regime else None,
         reward_risk_ratio=float(preferences.reward_risk_ratio),
         max_position_notional=float(preferences.max_position_notional),
         position_notional=round(position_notional, 2),
@@ -400,6 +432,27 @@ def _apply_source_confirmation_gate(
         )
 
 
+def _apply_market_regime_gates(
+    market_regime: MarketRegime | None,
+    preferences: TradingPreferences,
+    blockers: list[str],
+) -> None:
+    if preferences.current_session_drawdown_pct > preferences.max_session_drawdown_pct:
+        blockers.append(
+            f"session drawdown {preferences.current_session_drawdown_pct:.2f}% exceeds user maximum "
+            f"{preferences.max_session_drawdown_pct:.2f}%"
+        )
+    if market_regime is None:
+        return
+    if market_regime.regime not in preferences.allowed_market_regimes:
+        blockers.append(f"market regime {market_regime.regime} is not enabled in user allowed regimes")
+    if market_regime.realized_range_pct > preferences.max_regime_volatility_pct:
+        blockers.append(
+            f"regime volatility {market_regime.realized_range_pct:.2f}% exceeds user maximum "
+            f"{preferences.max_regime_volatility_pct:.2f}%"
+        )
+
+
 def _source_adjusted_confidence(raw_confidence: float, source_confirmation_weight: float) -> float:
     capped_weight = min(1.0, max(0.0, source_confirmation_weight))
     return round(raw_confidence * capped_weight, 2)
@@ -416,6 +469,7 @@ def build_trade_intent(
     source_confirmation_weight: float = 0.0,
     source_coverage_complete: bool = True,
     missing_required_source_coverage: list[str] | None = None,
+    market_regime: MarketRegime | None = None,
 ) -> TradeIntent:
     preferences = preferences or TradingPreferences()
     candidate_action = _action_from_direction(score.direction)
@@ -440,6 +494,7 @@ def build_trade_intent(
         blockers.append("direction is neutral; user settings require directional bias")
     if candidate_action in {"BUY", "SELL"} and candidate_action not in preferences.allowed_actions:
         blockers.append(f"{candidate_action} is not enabled in user allowed actions")
+    _apply_market_regime_gates(market_regime, preferences, blockers)
 
     quality_flags = _build_quality_flags(score, candidate_action)
     _apply_quality_gates(quality_flags, preferences, blockers)
@@ -454,7 +509,7 @@ def build_trade_intent(
     )
     source_adjusted_confidence = _source_adjusted_confidence(score.score, source_weight)
     risk_blockers: list[str] = []
-    risk_plan = _build_risk_plan(score, candidate_action, preferences, risk_blockers)
+    risk_plan = _build_risk_plan(score, candidate_action, preferences, risk_blockers, market_regime)
     blockers.extend(risk_blockers)
     confidence_breakdown = _build_confidence_breakdown(score)
     status: IntentStatus = "blocked" if blockers or candidate_action == "HOLD" or risk_plan is None else "ready_for_sentinel"
@@ -496,6 +551,7 @@ def build_trade_intent(
         risk_plan=risk_plan,
         confidence_breakdown=confidence_breakdown,
         quality_flags=quality_flags,
+        market_regime=market_regime,
     )
 
 
@@ -647,6 +703,7 @@ def prepare_pulse_packet(intent: TradeIntent, sentinel_decision: SentinelDecisio
         else None,
         "requires_manual_execution": True,
         "risk_plan": intent.risk_plan.model_dump(mode="json") if intent.risk_plan else None,
+        "market_regime": intent.market_regime.model_dump(mode="json") if intent.market_regime else None,
         "confidence_breakdown": [component.model_dump(mode="json") for component in intent.confidence_breakdown],
         "quality_flags": [flag.model_dump(mode="json") for flag in intent.quality_flags],
         "sentinel_checks": [check.model_dump(mode="json") for check in sentinel_decision.checks],
