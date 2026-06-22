@@ -28,6 +28,7 @@ from darkpool.fixtures import MAG7_STOCKS, generateTransaction
 from darkpool.providers import ProviderError, fetch_provider_result, list_provider_capabilities
 from darkpool.subscriptions import SubscriptionStore
 from darkpool.bot_event_bus_routes import router as bot_event_bus_router
+from darkpool.chrome_bridge_routes import router as chrome_bridge_router
 from routes.darkpool_routes import router as darkpool_router
 
 load_dotenv()
@@ -54,6 +55,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(bot_event_bus_router)
+app.include_router(chrome_bridge_router)
 app.include_router(darkpool_router)
 
 subscription_store = SubscriptionStore()
@@ -2462,12 +2464,13 @@ async def get_audit_log(
 
     random.seed(400)
     actions = ["login", "export", "view_ticker", "create_alert", "update_settings", "create_watchlist"]
+    now = datetime.now()
 
     logs = []
-    for _ in range(limit):
+    for index in range(limit):
         logs.append({
-            "id": f"audit_{random.randint(1000, 9999)}",
-            "timestamp": datetime.now().isoformat(),
+            "id": f"audit_{index + 1:04d}",
+            "timestamp": (now - timedelta(seconds=index * 17)).isoformat(),
             "user": random.choice(["user", "admin", "analyst"]),
             "action": random.choice(actions),
             "details": f"Action details for audit",

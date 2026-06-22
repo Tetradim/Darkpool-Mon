@@ -67,6 +67,32 @@ Open http://localhost:3002 when using the launcher. Manual `npm run dev` still u
 
 The Vite dev server proxies API-backed views to the FastAPI backend on `http://127.0.0.1:8002`.
 
+## macOS Beta Installer
+
+MacBook beta testers can install the local source build with the bundled macOS installer script. It creates the Python virtual environment, installs frontend dependencies, and adds a double-click launcher to the Desktop.
+
+Prerequisites:
+
+- macOS with Python 3.11+ on `PATH`
+- Node.js with `npm`
+
+From the repository root:
+
+```bash
+chmod +x install-macos.sh
+./install-macos.sh
+```
+
+After installation, double-click `Darkpool Monitor.command` on the Desktop. The launcher starts the backend on `8002`, starts the frontend on `3002`, and opens the dashboard. Logs are written to `~/Desktop/Darkpool-Monitor.log`.
+
+Manual launch options:
+
+```bash
+./install-macos.sh --launch
+./install-macos.sh --launch --install-deps
+./install-macos.sh --launch --backend-port 8002 --frontend-port 3002 --no-browser
+```
+
 Run the Discord bot:
 
 ```bash

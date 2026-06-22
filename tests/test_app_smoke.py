@@ -81,3 +81,13 @@ def test_alert_route_records_successful_delivery_history():
     assert server.alert_router.routing_history[-1]["channel"] == "discord"
     assert server.alert_router.routing_history[-1]["success"] is True
     assert server.alert_router.routing_history[-1]["timestamp"]
+
+
+def test_admin_audit_log_returns_unique_row_ids_for_react_keys():
+    client = TestClient(server.app)
+
+    response = client.get("/admin/audit-log?limit=250")
+
+    assert response.status_code == 200, response.text
+    ids = [row["id"] for row in response.json()["logs"]]
+    assert len(ids) == len(set(ids))
