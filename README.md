@@ -273,6 +273,31 @@ CREATE TABLE watchlist_users (
 
 ## Quick Start
 
+### Windows beta installer
+
+Beta testers should use `DarkpoolMonitor-Setup-<version>.exe` from the Windows installer artifact or release download. After installation, double-click the `Darkpool Monitor` Desktop or Start Menu shortcut.
+
+The installed launcher downloads missing runtime dependencies on first launch. It checks for the Visual C++ Runtime, downloads `vc_redist.x64.exe` into `%LOCALAPPDATA%\Darkpool Monitor\dependencies` when needed, starts the packaged `DarkpoolMonitor.exe`, waits for `/health`, and opens the bundled dashboard at `/app/`.
+
+The installed app does not require Python, Node.js, npm, or a source checkout. Support logs are written to the Desktop:
+
+```text
+Darkpool-Monitor.log
+Darkpool-Monitor-Transcript.log
+```
+
+### Windows local source launcher
+
+From a source checkout, double-click `Launch-Darkpool-Monitor.bat` or run:
+
+```powershell
+.\Launch-Darkpool-Monitor.ps1 -InstallDeps
+```
+
+`Launch-Darkpool-Monitor.ps1 -InstallDeps` creates the local Python virtual environment, installs `requirements.txt`, runs `npm install`, starts the FastAPI backend on `8002`, starts Vite on `3002`, and opens the dashboard. Use `-BackendPort`, `-FrontendPort`, and `-NoBrowser` to override those defaults.
+
+### Manual development
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt

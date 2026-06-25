@@ -5,12 +5,15 @@ import asyncio
 import logging
 import secrets
 import hashlib
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal, Optional
 from enum import Enum
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr
 from collections import defaultdict
 
@@ -2630,6 +2633,31 @@ async def handle_slash_command(command: SlashCommand):
         return {"type": 4, "data": {"content": f"📊 Darkpool Data for {symbol or 'ALL'}: {len(data):,} records (Tier {tier})"}}
 
     return {"type": 4, "data": {"content": "Unknown command"}}
+
+
+def find_packaged_static_dir() -> Path | None:
+    """Return the bundled Vite static directory when running from an installer."""
+    # PyInstaller exposes bundled files through sys._MEIPASS at runtime.
+    candidates = [
+        Path.cwd() / "static",
+        Path(__file__).resolve().parent / "static",
+        Path(getattr(sys, "_MEIPASS", "")) / "static",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.extend([
+            Path(sys.executable).resolve().parent / "static",
+            Path(sys.executable).resolve().parent / "_internal" / "static",
+        ])
+
+    for candidate in candidates:
+        if candidate and (candidate / "index.html").exists():
+            return candidate
+    return None
+
+
+packaged_static_dir = find_packaged_static_dir()
+if packaged_static_dir:
+    app.mount("/app", StaticFiles(directory=str(packaged_static_dir), html=True), name="app")
 
 
 # ============================================================================
